@@ -1,5 +1,14 @@
 import { invoke } from "@tauri-apps/api/core";
-import type { CardRelation, Conversation, KnowledgeCard, KnowledgeGraph } from "./types";
+import type {
+  CardRelation,
+  Conversation,
+  ExtractedCardDraft,
+  ExtractedRelationDraft,
+  ExtractionPreview,
+  KnowledgeCard,
+  KnowledgeGraph,
+  OpenAiStatus
+} from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
 
@@ -66,6 +75,34 @@ export const api = {
       method: "POST"
     });
   },
+  previewExtraction(id: string) {
+    if (isTauriRuntime()) {
+      return invoke<ExtractionPreview>("preview_extraction", { id });
+    }
+
+    return this.extractConversation(id).then((result) => ({
+      cards: result.cards,
+      relations: result.relations.map((relation) => ({
+        source_title: relation.source_card_id,
+        target_title: relation.target_card_id,
+        relation_type: relation.relation_type,
+        reason: relation.reason,
+        confidence: relation.confidence
+      })),
+      provider: "legacy"
+    }));
+  },
+  confirmExtraction(input: {
+    conversation_id: string;
+    cards: ExtractedCardDraft[];
+    relations: ExtractedRelationDraft[];
+  }) {
+    if (isTauriRuntime()) {
+      return invoke<{ cards: KnowledgeCard[]; relations: CardRelation[] }>("confirm_extraction", { input });
+    }
+
+    return Promise.resolve({ cards: [], relations: [] });
+  },
   listCards() {
     if (isTauriRuntime()) {
       return invoke<KnowledgeCard[]>("list_cards");
@@ -86,5 +123,56 @@ export const api = {
     }
 
     return request<KnowledgeGraph>("/api/graph");
+  },
+  listRelations() {
+    if (isTauriRuntime()) {
+      return invoke<CardRelation[]>("list_relations");
+    }
+
+    return request<CardRelation[]>("/api/relations");
+  },
+  getCardRelations(cardId: string) {
+    if (isTauriRuntime()) {
+      return invoke<CardRelation[]>("get_card_relations", { cardId });
+    }
+
+    return this.listRelations().then((relations) =>
+      relations.filter((relation) => relation.source_card_id === cardId || relation.target_card_id === cardId)
+    );
+  },
+  seedSampleData() {
+    if (isTauriRuntime()) {
+      return invoke<{ cards: KnowledgeCard[]; relations: CardRelation[] }>("seed_sample_data");
+    }
+
+    return Promise.reject(new Error("示例数据只能在桌面版中加载。"));
+  },
+  getOpenAiStatus() {
+    if (isTauriRuntime()) {
+      return invoke<OpenAiStatus>("get_openai_status");
+    }
+
+    return Promise.resolve({ has_api_key: false, model: "gpt-5.4-mini" });
+  },
+  saveOpenAiApiKey(apiKey: string) {
+    if (isTauriRuntime()) {
+      return invoke<OpenAiStatus>("save_openai_api_key", { input: { api_key: apiKey } });
+    }
+
+    return Promise.resolve({ has_api_key: false, model: "gpt-5.4-mini" });
+  },
+  clearOpenAiApiKey() {
+    if (isTauriRuntime()) {
+      return invoke<OpenAiStatus>("clear_openai_api_key");
+    }
+
+    return Promise.resolve({ has_api_key: false, model: "gpt-5.4-mini" });
+  },
+  setOpenAiModel(model: string) {
+    if (isTauriRuntime()) {
+      return invoke<OpenAiStatus>("set_openai_model", { input: { model } });
+    }
+
+    return Promise.resolve({ has_api_key: false, model });
   }
 };

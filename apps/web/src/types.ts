@@ -24,16 +24,54 @@ export interface CardRelation {
   id: string;
   source_card_id: string;
   target_card_id: string;
-  relation_type: string;
+  relation_type: RelationType;
   reason: string;
   confidence: number;
   created_at: string;
 }
 
+export type RelationType =
+  | "prerequisite"
+  | "contains"
+  | "related"
+  | "contrast"
+  | "application"
+  | "source"
+  | "supports";
+
+export interface ExtractedCardDraft {
+  title: string;
+  summary: string;
+  content: string;
+  type: string;
+  tags: string[];
+}
+
+export interface ExtractedRelationDraft {
+  source_title: string;
+  target_title: string;
+  relation_type: RelationType;
+  reason: string;
+  confidence: number;
+}
+
+export interface ExtractionPreview {
+  cards: ExtractedCardDraft[];
+  relations: ExtractedRelationDraft[];
+  provider: "openai" | "mock" | string;
+  warning?: string | null;
+}
+
+export interface OpenAiStatus {
+  has_api_key: boolean;
+  key_source?: string | null;
+  model: string;
+}
+
 export interface KnowledgeGraph {
   nodes: Array<{
     id: string;
-    label: string;
+    label: RelationType;
     type: string;
     summary: string;
     tags: string[];
