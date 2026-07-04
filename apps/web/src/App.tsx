@@ -28,6 +28,18 @@ import type {
 
 type View = "home" | "import" | "cards" | "graph";
 
+function formatErrorMessage(error: unknown, fallback: string) {
+  if (error instanceof Error && error.message.trim()) {
+    return error.message;
+  }
+
+  if (typeof error === "string" && error.trim()) {
+    return error;
+  }
+
+  return fallback;
+}
+
 const navItems: Array<{ id: View; label: string; icon: typeof Home }> = [
   { id: "home", label: "首页", icon: Home },
   { id: "import", label: "导入", icon: FilePlus2 },
@@ -89,13 +101,13 @@ export function App() {
       setStatus(`已加载示例数据：${result.cards.length} 张卡片，${result.relations.length} 条关系`);
       setActiveView("cards");
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "加载示例数据失败");
+      setStatus(formatErrorMessage(error, "加载示例数据失败"));
     }
   }
 
   useEffect(() => {
     refreshData().catch((error: unknown) => {
-      setStatus(error instanceof Error ? error.message : "无法读取 CardMind 数据");
+      setStatus(formatErrorMessage(error, "无法读取 CardMind 数据"));
     });
   }, []);
 
@@ -649,11 +661,24 @@ function OpenAiSettings({
   const [isBusy, setIsBusy] = useState(false);
 
   async function saveKey() {
+    if (!apiKey.trim()) {
+      onStatusChange(status ?? { has_api_key: false, model: "gpt-5.4-mini" }, "请先粘贴 OpenAI API Key。");
+      return;
+    }
+
     setIsBusy(true);
     try {
       const nextStatus = await api.saveOpenAiApiKey(apiKey);
       setApiKey("");
       onStatusChange(nextStatus, "OpenAI API Key 已保存到系统凭据。");
+    } catch (error) {
+      onStatusChange(
+        status ?? { has_api_key: false, model: "gpt-5.4-mini" },
+        `OpenAI API Key 保存失败：${formatErrorMessage(
+          error,
+          "无法写入 Windows Credential Manager，请改用环境变量 OPENAI_API_KEY。"
+        )}`
+      );
     } finally {
       setIsBusy(false);
     }
@@ -664,14 +689,29 @@ function OpenAiSettings({
     try {
       const nextStatus = await api.clearOpenAiApiKey();
       onStatusChange(nextStatus, "OpenAI API Key 已清除。");
+    } catch (error) {
+      onStatusChange(
+        status ?? { has_api_key: false, model: "gpt-5.4-mini" },
+        `OpenAI API Key 清除失败：${formatErrorMessage(error, "无法访问 Windows Credential Manager。")}`
+      );
     } finally {
       setIsBusy(false);
     }
   }
 
   async function setModel(model: string) {
-    const nextStatus = await api.setOpenAiModel(model);
-    onStatusChange(nextStatus, `OpenAI 模型已切换为 ${nextStatus.model}`);
+    setIsBusy(true);
+    try {
+      const nextStatus = await api.setOpenAiModel(model);
+      onStatusChange(nextStatus, `OpenAI 模型已切换为 ${nextStatus.model}`);
+    } catch (error) {
+      onStatusChange(
+        status ?? { has_api_key: false, model },
+        `OpenAI 模型切换失败：${formatErrorMessage(error, "无法保存模型设置。")}`
+      );
+    } finally {
+      setIsBusy(false);
+    }
   }
 
   return (
@@ -683,7 +723,11 @@ function OpenAiSettings({
       <span className={status?.has_api_key ? "key-status connected" : "key-status"}>
         {status?.has_api_key ? `已连接 · ${status.key_source}` : "未配置 API Key"}
       </span>
-      <select value={status?.model ?? "gpt-5.4-mini"} onChange={(event) => setModel(event.target.value)}>
+      <select
+        value={status?.model ?? "gpt-5.4-mini"}
+        disabled={isBusy}
+        onChange={(event) => setModel(event.target.value)}
+      >
         <option value="gpt-5.4-mini">gpt-5.4-mini</option>
         <option value="gpt-5.5">gpt-5.5</option>
       </select>

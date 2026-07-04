@@ -19,4 +19,4 @@ $env:Path = "$nodeBin;$env:Path"
 Start-Process -FilePath $pnpm `
   -ArgumentList "tauri", "dev" `
   -WorkingDirectory $repoRoot `
-  -WindowStyle Normal
+  -WindowStyle Hidden

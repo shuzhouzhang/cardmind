@@ -537,8 +537,16 @@ impl CardMindRepository {
     }
 
     pub fn save_openai_api_key(&self, api_key: &str) -> Result<OpenAiStatus, String> {
-        let entry = keyring_entry().ok_or_else(|| "无法打开 Windows Credential Manager。".to_string())?;
-        entry.set_password(api_key.trim()).map_err(|error| error.to_string())?;
+        let trimmed = api_key.trim();
+        if trimmed.is_empty() {
+            return Err("OpenAI API Key 不能为空。".to_string());
+        }
+
+        let entry = keyring_entry()
+            .ok_or_else(|| "无法打开 Windows Credential Manager，请改用环境变量 OPENAI_API_KEY。".to_string())?;
+        entry
+            .set_password(trimmed)
+            .map_err(|error| format!("无法写入 Windows Credential Manager，请改用环境变量 OPENAI_API_KEY：{error}"))?;
         self.openai_status()
     }
 
