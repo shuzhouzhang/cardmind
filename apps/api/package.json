@@ -7,7 +7,7 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "db:init": "tsx src/db/init.ts",
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-assets.mjs",
     "check": "tsc -p tsconfig.json --noEmit",
     "start": "node dist/index.js"
   },
