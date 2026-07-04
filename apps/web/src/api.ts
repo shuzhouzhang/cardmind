@@ -75,7 +75,7 @@ export const api = {
       method: "POST"
     });
   },
-  previewExtraction(id: string) {
+  previewExtraction(id: string): Promise<ExtractionPreview> {
     if (isTauriRuntime()) {
       return invoke<ExtractionPreview>("preview_extraction", { id });
     }
@@ -89,7 +89,8 @@ export const api = {
         reason: relation.reason,
         confidence: relation.confidence
       })),
-      provider: "legacy"
+      provider: "legacy",
+      warning: undefined
     }));
   },
   confirmExtraction(input: {
