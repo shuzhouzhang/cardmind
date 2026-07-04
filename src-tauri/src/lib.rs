@@ -76,6 +76,14 @@ fn get_card(state: State<'_, AppState>, id: String) -> Result<Option<models::Kno
 }
 
 #[tauri::command]
+fn search_cards(
+    state: State<'_, AppState>,
+    input: models::SearchCardsInput,
+) -> Result<models::SearchCardsResult, String> {
+    state.repository()?.search_cards(input)
+}
+
+#[tauri::command]
 fn list_relations(state: State<'_, AppState>) -> Result<Vec<models::CardRelation>, String> {
     state.repository()?.list_relations()
 }
@@ -83,6 +91,16 @@ fn list_relations(state: State<'_, AppState>) -> Result<Vec<models::CardRelation
 #[tauri::command]
 fn get_graph(state: State<'_, AppState>) -> Result<models::KnowledgeGraph, String> {
     state.repository()?.get_graph()
+}
+
+#[tauri::command]
+fn export_card_markdown(state: State<'_, AppState>, id: String) -> Result<String, String> {
+    state.repository()?.export_card_markdown(&id)
+}
+
+#[tauri::command]
+fn export_all_cards_markdown(state: State<'_, AppState>) -> Result<String, String> {
+    state.repository()?.export_all_cards_markdown()
 }
 
 #[tauri::command]
@@ -152,8 +170,11 @@ pub fn run() {
             confirm_extraction,
             list_cards,
             get_card,
+            search_cards,
             list_relations,
             get_graph,
+            export_card_markdown,
+            export_all_cards_markdown,
             get_card_relations,
             seed_sample_data,
             get_openai_status,

@@ -104,6 +104,18 @@ pub struct SetOpenAiModelInput {
     pub model: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct SearchCardsInput {
+    pub query: String,
+    pub tag: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SearchCardsResult {
+    pub cards: Vec<KnowledgeCard>,
+    pub engine: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct GraphNode {
     pub id: String,

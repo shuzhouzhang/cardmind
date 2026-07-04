@@ -3,6 +3,7 @@ use crate::models::{
     CardRelation, ConfirmExtractionInput, Conversation, CreateConversationInput, ExtractionPreview,
     ExtractedCardDraft, ExtractedRelationDraft, GraphEdge, GraphNode, KnowledgeCard, KnowledgeGraph,
     OpenAiStatus, PersistedExtraction,
+    SearchCardsInput, SearchCardsResult,
 };
 use crate::openai::extract_with_openai_or_mock;
 use chrono::Utc;
@@ -95,6 +96,7 @@ impl CardMindRepository {
         connection.execute_batch(SCHEMA_SQL)?;
         let repository = Self { connection };
         repository.migrate_supports_relation_type()?;
+        repository.initialize_search_index();
         Ok(repository)
     }
 
@@ -240,6 +242,18 @@ impl CardMindRepository {
                 )
                 .map_err(|error| error.to_string())?;
 
+            let _ = transaction.execute(
+                "INSERT INTO knowledge_cards_fts (card_id, title, summary, content, tags)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+                params![
+                    card.id,
+                    card.title,
+                    card.summary,
+                    card.content,
+                    serde_json::to_string(&card.tags).unwrap_or_default()
+                ],
+            );
+
             cards.push(card);
         }
 
@@ -321,6 +335,35 @@ impl CardMindRepository {
             .map_err(|error| error.to_string())
     }
 
+    pub fn search_cards(&self, input: SearchCardsInput) -> Result<SearchCardsResult, String> {
+        let query = input.query.trim().to_string();
+        if query.is_empty() && input.tag.as_deref().unwrap_or_default().trim().is_empty() {
+            return Ok(SearchCardsResult {
+                cards: self.list_cards()?,
+                engine: self.search_engine_name(),
+            });
+        }
+
+        if self.is_fts_available() {
+            match self.search_cards_fts(&query, input.tag.as_deref()) {
+                Ok(cards) => {
+                    return Ok(SearchCardsResult {
+                        cards,
+                        engine: "fts5".to_string(),
+                    });
+                }
+                Err(_) => {
+                    // Fall through to LIKE search. FTS can fail on special query syntax.
+                }
+            }
+        }
+
+        Ok(SearchCardsResult {
+            cards: self.search_cards_like(&query, input.tag.as_deref())?,
+            engine: "like".to_string(),
+        })
+    }
+
     pub fn list_relations(&self) -> Result<Vec<CardRelation>, String> {
         let mut statement = self
             .connection
@@ -369,6 +412,18 @@ impl CardMindRepository {
         Ok(KnowledgeGraph { nodes, edges })
     }
 
+    pub fn export_card_markdown(&self, id: &str) -> Result<String, String> {
+        let card = self
+            .get_card(id)?
+            .ok_or_else(|| "Knowledge card not found".to_string())?;
+        Ok(self.render_markdown_export(&[card]))
+    }
+
+    pub fn export_all_cards_markdown(&self) -> Result<String, String> {
+        let cards = self.list_cards()?;
+        Ok(self.render_markdown_export(&cards))
+    }
+
     pub fn get_card_relations(&self, card_id: &str) -> Result<Vec<CardRelation>, String> {
         let mut statement = self
             .connection
@@ -393,69 +448,69 @@ impl CardMindRepository {
         }
 
         let conversation = self.create_conversation(CreateConversationInput {
-            title: Some("示例：产品化、本地优先、SQLite 与知识图谱".to_string()),
-            raw_content: "这是一段关于 CardMind 产品设计的示例对话。我们讨论产品化如何把技术能力变成可持续交付的产品，也讨论本地优先为什么适合个人知识系统。SQLite 可以支持本地优先的数据存储，知识卡片是最小学习单位，知识图谱则包含并连接这些知识卡片。".to_string(),
+            title: Some("示例：学习复盘、工程分析与简历沉淀".to_string()),
+            raw_content: "这是一段 CardMind 示例对话，内容来自个人学习和面试复盘场景：视频点播后端修复记录需要沉淀为可复用的排查方法；内存池 benchmark 分析需要记录实验口径和性能结论；TinyMuduo Reactor 事件循环问答可以拆成 Channel、Poller、EventLoop 等知识点；简历优化建议需要区分真实项目能力和包装表达；微服务拆分边界需要说明模块职责、数据归属和接口契约。".to_string(),
             source_type: Some("sample".to_string()),
         })?;
 
         let cards = vec![
             ExtractedCardDraft {
-                title: "产品化".to_string(),
-                summary: "产品化是把技术能力变成可交付、可维护、可迭代的产品。".to_string(),
-                content: "产品化不是简单写代码，而是把技术能力包装成用户可以使用、持续维护、持续迭代的产品能力。".to_string(),
-                r#type: "concept".to_string(),
-                tags: vec!["产品".to_string(), "工程".to_string(), "交付".to_string()],
+                title: "视频点播后端修复记录".to_string(),
+                summary: "后端修复记录应沉淀问题现象、定位路径、验证命令和最终边界。".to_string(),
+                content: "视频点播后端修复不只是记录改了哪一行代码，还要记录接口现象、日志线索、数据库状态、复现步骤、修复方案和 smoke test 结果，方便之后复盘和面试讲解。".to_string(),
+                r#type: "engineering-note".to_string(),
+                tags: vec!["后端".to_string(), "视频点播".to_string(), "排障".to_string()],
             },
             ExtractedCardDraft {
-                title: "本地优先".to_string(),
-                summary: "本地优先强调数据优先保存在用户自己的设备上。".to_string(),
-                content: "本地优先适合个人知识系统，因为学习记录、对话内容和知识卡片都具有长期价值和隐私属性。".to_string(),
-                r#type: "concept".to_string(),
-                tags: vec!["隐私".to_string(), "本地化".to_string(), "数据所有权".to_string()],
+                title: "内存池 benchmark 分析".to_string(),
+                summary: "benchmark 结论必须绑定测试口径，否则性能数字不可复用。".to_string(),
+                content: "分析内存池 benchmark 时，需要同时记录分配粒度、线程数、循环次数、预热策略、对照组、统计指标和异常波动。否则单个耗时数字很难说明设计是否真的更好。".to_string(),
+                r#type: "analysis".to_string(),
+                tags: vec!["C++".to_string(), "性能".to_string(), "benchmark".to_string()],
             },
             ExtractedCardDraft {
-                title: "SQLite".to_string(),
-                summary: "SQLite 是适合本地优先产品的轻量结构化数据库。".to_string(),
-                content: "SQLite 能在不依赖云端服务的情况下保存对话、卡片和关系，同时为全文搜索、同步和备份留下扩展空间。".to_string(),
-                r#type: "technology".to_string(),
-                tags: vec!["数据库".to_string(), "本地存储".to_string(), "架构".to_string()],
+                title: "TinyMuduo Reactor 事件循环".to_string(),
+                summary: "Reactor 通过事件循环把 IO 就绪事件分发给 Channel 回调。".to_string(),
+                content: "TinyMuduo 的 Reactor 模型可以从 EventLoop、Poller、Channel 三个对象理解：Poller 等待 IO 就绪，Channel 描述 fd 和回调，EventLoop 负责循环调度和线程归属。".to_string(),
+                r#type: "concept".to_string(),
+                tags: vec!["C++".to_string(), "网络库".to_string(), "Reactor".to_string()],
             },
             ExtractedCardDraft {
-                title: "知识卡片".to_string(),
-                summary: "知识卡片是从对话中抽取出的最小知识单位。".to_string(),
-                content: "知识卡片把一段对话中的有效知识点结构化保存，便于复习、搜索、连接和后续导出。".to_string(),
-                r#type: "concept".to_string(),
-                tags: vec!["知识管理".to_string(), "学习".to_string(), "结构化".to_string()],
+                title: "简历优化建议".to_string(),
+                summary: "简历表达要把真实经历转成可验证的工程成果。".to_string(),
+                content: "简历优化不是夸大项目，而是把做过的功能、验证方式、技术取舍和结果边界表达清楚。尤其要区分已完成能力、demo 能力和后续计划。".to_string(),
+                r#type: "career-note".to_string(),
+                tags: vec!["简历".to_string(), "面试".to_string(), "表达".to_string()],
             },
             ExtractedCardDraft {
-                title: "知识图谱".to_string(),
-                summary: "知识图谱用节点和边表达知识点之间的关系。".to_string(),
-                content: "在 CardMind 中，节点来自 KnowledgeCard，边来自 CardRelation，用户可以通过图谱看到知识之间的前置、包含、对比、相关、应用和支持关系。".to_string(),
-                r#type: "concept".to_string(),
-                tags: vec!["图谱".to_string(), "关系".to_string(), "可视化".to_string()],
+                title: "微服务拆分边界".to_string(),
+                summary: "微服务拆分边界应围绕业务职责、数据归属和接口契约判断。".to_string(),
+                content: "微服务拆分不能只按代码目录拆，应该明确每个服务的业务职责、数据所有权、跨服务调用方式、失败处理和演进成本。边界不清会带来分布式复杂度。".to_string(),
+                r#type: "architecture".to_string(),
+                tags: vec!["微服务".to_string(), "架构".to_string(), "边界".to_string()],
             },
         ];
 
         let relations = vec![
             ExtractedRelationDraft {
-                source_title: "产品化".to_string(),
-                target_title: "本地优先".to_string(),
+                source_title: "视频点播后端修复记录".to_string(),
+                target_title: "简历优化建议".to_string(),
                 relation_type: "related".to_string(),
-                reason: "二者都会影响产品架构和长期用户体验。".to_string(),
+                reason: "真实修复记录可以转化为简历中可验证的项目成果。".to_string(),
                 confidence: 0.9,
             },
             ExtractedRelationDraft {
-                source_title: "SQLite".to_string(),
-                target_title: "本地优先".to_string(),
+                source_title: "内存池 benchmark 分析".to_string(),
+                target_title: "简历优化建议".to_string(),
                 relation_type: "supports".to_string(),
-                reason: "SQLite 的本地结构化存储能力支持本地优先理念。".to_string(),
+                reason: "清晰的 benchmark 口径支持简历中对性能优化的可信表达。".to_string(),
                 confidence: 0.92,
             },
             ExtractedRelationDraft {
-                source_title: "知识图谱".to_string(),
-                target_title: "知识卡片".to_string(),
+                source_title: "微服务拆分边界".to_string(),
+                target_title: "视频点播后端修复记录".to_string(),
                 relation_type: "contains".to_string(),
-                reason: "知识图谱由知识卡片节点和关系边生成。".to_string(),
+                reason: "视频点播后端问题定位通常涉及模块职责和服务边界判断。".to_string(),
                 confidence: 0.95,
             },
         ];
@@ -585,6 +640,147 @@ impl CardMindRepository {
 
         Ok(())
     }
+
+    fn initialize_search_index(&self) {
+        if self
+            .connection
+            .execute_batch(
+                r#"
+                CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_cards_fts
+                USING fts5(card_id UNINDEXED, title, summary, content, tags);
+
+                INSERT INTO knowledge_cards_fts (card_id, title, summary, content, tags)
+                SELECT id, title, summary, content, tags
+                FROM knowledge_cards
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM knowledge_cards_fts WHERE knowledge_cards_fts.card_id = knowledge_cards.id
+                );
+                "#,
+            )
+            .is_err()
+        {
+            return;
+        }
+    }
+
+    fn is_fts_available(&self) -> bool {
+        self.connection
+            .query_row(
+                "SELECT 1 FROM sqlite_master WHERE type='table' AND name='knowledge_cards_fts'",
+                [],
+                |_| Ok(()),
+            )
+            .is_ok()
+    }
+
+    fn search_engine_name(&self) -> String {
+        if self.is_fts_available() {
+            "fts5".to_string()
+        } else {
+            "like".to_string()
+        }
+    }
+
+    fn search_cards_fts(&self, query: &str, tag: Option<&str>) -> Result<Vec<KnowledgeCard>, String> {
+        let fts_query = sanitize_fts_query(query);
+        let tag_filter = tag.unwrap_or_default().trim().to_string();
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT kc.id, kc.title, kc.summary, kc.content, kc.type, kc.tags, kc.mastery_status, kc.source_conversation_id, kc.created_at, kc.updated_at
+                 FROM knowledge_cards kc
+                 JOIN knowledge_cards_fts fts ON fts.card_id = kc.id
+                 WHERE (?1 = '' OR knowledge_cards_fts MATCH ?1)
+                   AND (?2 = '' OR kc.tags LIKE ?3)
+                 ORDER BY kc.created_at DESC",
+            )
+            .map_err(|error| error.to_string())?;
+
+        let rows = statement
+            .query_map(
+                params![fts_query, tag_filter, format!("%{}%", tag_filter)],
+                map_card,
+            )
+            .map_err(|error| error.to_string())?;
+
+        collect_rows(rows)
+    }
+
+    fn search_cards_like(&self, query: &str, tag: Option<&str>) -> Result<Vec<KnowledgeCard>, String> {
+        let query_filter = query.trim().to_string();
+        let like_query = format!("%{}%", query_filter);
+        let tag_filter = tag.unwrap_or_default().trim().to_string();
+        let like_tag = format!("%{}%", tag_filter);
+
+        let mut statement = self
+            .connection
+            .prepare(
+                "SELECT id, title, summary, content, type, tags, mastery_status, source_conversation_id, created_at, updated_at
+                 FROM knowledge_cards
+                 WHERE (?1 = '' OR title LIKE ?2 OR summary LIKE ?2 OR content LIKE ?2)
+                   AND (?3 = '' OR tags LIKE ?4)
+                 ORDER BY created_at DESC",
+            )
+            .map_err(|error| error.to_string())?;
+
+        let rows = statement
+            .query_map(params![query_filter, like_query, tag_filter, like_tag], map_card)
+            .map_err(|error| error.to_string())?;
+
+        collect_rows(rows)
+    }
+
+    fn render_markdown_export(&self, cards: &[KnowledgeCard]) -> String {
+        let relations = self.list_relations().unwrap_or_default();
+        let cards_by_id = self
+            .list_cards()
+            .unwrap_or_default()
+            .into_iter()
+            .map(|card| (card.id.clone(), card))
+            .collect::<HashMap<_, _>>();
+        let mut output = String::from("# CardMind Export\n\n");
+
+        for card in cards {
+            output.push_str(&format!("## {}\n\n", card.title));
+            output.push_str("摘要：\n");
+            output.push_str(&format!("{}\n\n", card.summary));
+            output.push_str("内容：\n");
+            output.push_str(&format!("{}\n\n", card.content));
+            output.push_str("来源对话：\n");
+            output.push_str(&format!("{}\n\n", card.source_conversation_id));
+            output.push_str("标签：\n");
+            output.push_str(&format!("{}\n\n", card.tags.join(", ")));
+            output.push_str("关系：\n");
+
+            let related = relations
+                .iter()
+                .filter(|relation| relation.source_card_id == card.id || relation.target_card_id == card.id)
+                .collect::<Vec<_>>();
+
+            if related.is_empty() {
+                output.push_str("- 暂无关系\n\n");
+            } else {
+                for relation in related {
+                    let other_id = if relation.source_card_id == card.id {
+                        &relation.target_card_id
+                    } else {
+                        &relation.source_card_id
+                    };
+                    let other_title = cards_by_id
+                        .get(other_id)
+                        .map(|other| other.title.as_str())
+                        .unwrap_or(other_id);
+                    output.push_str(&format!(
+                        "- {} -> {}：{}\n",
+                        relation.relation_type, other_title, relation.reason
+                    ));
+                }
+                output.push('\n');
+            }
+        }
+
+        output
+    }
 }
 
 fn keyring_entry() -> Option<Entry> {
@@ -656,10 +852,28 @@ fn create_title(raw_content: &str) -> String {
         .unwrap_or_else(|| "Untitled conversation".to_string())
 }
 
+fn sanitize_fts_query(query: &str) -> String {
+    query
+        .split_whitespace()
+        .filter_map(|token| {
+            let cleaned = token
+                .chars()
+                .filter(|character| character.is_alphanumeric() || *character == '_' || ('\u{4e00}'..='\u{9fff}').contains(character))
+                .collect::<String>();
+            if cleaned.is_empty() {
+                None
+            } else {
+                Some(cleaned)
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::CardMindRepository;
-    use crate::models::CreateConversationInput;
+    use crate::models::{CreateConversationInput, SearchCardsInput};
     use tempfile::tempdir;
 
     #[test]
@@ -734,5 +948,49 @@ mod tests {
         assert!(relations
             .iter()
             .any(|relation| relation.relation_type == "supports"));
+    }
+
+    #[test]
+    fn search_cards_finds_seeded_demo_content() {
+        let tempdir = tempdir().expect("create tempdir");
+        let mut repository =
+            CardMindRepository::open(tempdir.path().join("cardmind.sqlite")).expect("open db");
+
+        repository.seed_sample_data().expect("seed sample data");
+        let result = repository
+            .search_cards(SearchCardsInput {
+                query: "benchmark".to_string(),
+                tag: None,
+            })
+            .expect("search cards");
+
+        assert!(result.engine == "fts5" || result.engine == "like");
+        assert!(result
+            .cards
+            .iter()
+            .any(|card| card.title == "内存池 benchmark 分析"));
+    }
+
+    #[test]
+    fn export_markdown_contains_core_card_fields() {
+        let tempdir = tempdir().expect("create tempdir");
+        let mut repository =
+            CardMindRepository::open(tempdir.path().join("cardmind.sqlite")).expect("open db");
+
+        repository.seed_sample_data().expect("seed sample data");
+        let card = repository
+            .list_cards()
+            .expect("list cards")
+            .into_iter()
+            .find(|card| card.title == "TinyMuduo Reactor 事件循环")
+            .expect("find demo card");
+        let markdown = repository
+            .export_card_markdown(&card.id)
+            .expect("export markdown");
+
+        assert!(markdown.contains("# CardMind Export"));
+        assert!(markdown.contains("TinyMuduo Reactor 事件循环"));
+        assert!(markdown.contains("摘要："));
+        assert!(markdown.contains(&card.source_conversation_id));
     }
 }
