@@ -68,6 +68,11 @@ export interface OpenAiStatus {
   model: string;
 }
 
+export interface SearchCardsResult {
+  cards: KnowledgeCard[];
+  engine: "fts5" | "like" | string;
+}
+
 export interface KnowledgeGraph {
   nodes: Array<{
     id: string;

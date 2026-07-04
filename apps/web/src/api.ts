@@ -7,7 +7,8 @@ import type {
   ExtractionPreview,
   KnowledgeCard,
   KnowledgeGraph,
-  OpenAiStatus
+  OpenAiStatus,
+  SearchCardsResult
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -118,6 +119,28 @@ export const api = {
 
     return request<KnowledgeCard>(`/api/cards/${id}`);
   },
+  searchCards(input: { query: string; tag?: string }) {
+    if (isTauriRuntime()) {
+      return invoke<SearchCardsResult>("search_cards", { input });
+    }
+
+    return this.listCards().then((cards) => {
+      const query = input.query.trim().toLowerCase();
+      const tag = input.tag?.trim().toLowerCase() ?? "";
+      return {
+        cards: cards.filter((card) => {
+          const matchesQuery =
+            query.length === 0 ||
+            card.title.toLowerCase().includes(query) ||
+            card.summary.toLowerCase().includes(query) ||
+            card.content.toLowerCase().includes(query);
+          const matchesTag = tag.length === 0 || card.tags.some((item) => item.toLowerCase().includes(tag));
+          return matchesQuery && matchesTag;
+        }),
+        engine: "like"
+      };
+    });
+  },
   getGraph() {
     if (isTauriRuntime()) {
       return invoke<KnowledgeGraph>("get_graph");
@@ -175,5 +198,19 @@ export const api = {
     }
 
     return Promise.resolve({ has_api_key: false, model });
+  },
+  exportCardMarkdown(id: string) {
+    if (isTauriRuntime()) {
+      return invoke<string>("export_card_markdown", { id });
+    }
+
+    return Promise.resolve("");
+  },
+  exportAllCardsMarkdown() {
+    if (isTauriRuntime()) {
+      return invoke<string>("export_all_cards_markdown");
+    }
+
+    return Promise.resolve("");
   }
 };

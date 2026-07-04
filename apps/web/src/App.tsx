@@ -6,6 +6,8 @@ import {
   Home,
   KeyRound,
   Network,
+  Download,
+  Search,
   Settings2,
   Sparkles
 } from "lucide-react";
@@ -447,6 +449,38 @@ function CardsView({
   onImport: () => void;
   onSeedSample: () => void;
 }) {
+  const [query, setQuery] = useState("");
+  const [tagFilter, setTagFilter] = useState("");
+  const [visibleCards, setVisibleCards] = useState<KnowledgeCard[]>(cards);
+  const [searchEngine, setSearchEngine] = useState<string>("本地列表");
+  const [exportMarkdown, setExportMarkdown] = useState("");
+  const [isSearching, setIsSearching] = useState(false);
+
+  useEffect(() => {
+    setVisibleCards(cards);
+  }, [cards]);
+
+  async function runSearch(nextQuery = query, nextTag = tagFilter) {
+    setIsSearching(true);
+    try {
+      const result = await api.searchCards({ query: nextQuery, tag: nextTag || undefined });
+      setVisibleCards(result.cards);
+      setSearchEngine(result.engine === "fts5" ? "SQLite FTS5" : "LIKE");
+    } finally {
+      setIsSearching(false);
+    }
+  }
+
+  async function exportAll() {
+    const markdown = await api.exportAllCardsMarkdown();
+    setExportMarkdown(markdown);
+  }
+
+  async function exportOne(card: KnowledgeCard) {
+    const markdown = await api.exportCardMarkdown(card.id);
+    setExportMarkdown(markdown);
+  }
+
   if (cards.length === 0) {
     return (
       <section className="view">
@@ -468,11 +502,41 @@ function CardsView({
         <div className="section-head compact">
           <div>
             <p className="eyebrow">卡片</p>
-            <h2>{cards.length} 张知识卡片</h2>
+            <h2>{visibleCards.length} / {cards.length} 张知识卡片</h2>
           </div>
+          <button className="secondary-action" type="button" onClick={exportAll}>
+            <Download aria-hidden="true" />
+            导出全部
+          </button>
+        </div>
+        <div className="search-panel">
+          <div className="search-row">
+            <Search aria-hidden="true" />
+            <input
+              className="text-input"
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  runSearch();
+                }
+              }}
+              placeholder="搜索标题、摘要或内容，例如 benchmark / Reactor / 简历"
+            />
+            <input
+              className="tag-input"
+              value={tagFilter}
+              onChange={(event) => setTagFilter(event.target.value)}
+              placeholder="标签过滤"
+            />
+            <button className="primary-action" type="button" disabled={isSearching} onClick={() => runSearch()}>
+              搜索
+            </button>
+          </div>
+          <small>搜索引擎：{searchEngine}</small>
         </div>
         <div className="card-grid">
-          {cards.map((card) => (
+          {visibleCards.map((card) => (
             <button key={card.id} className="knowledge-card" type="button" onClick={() => onSelect(card)}>
               <div className="card-title-row">
                 <span className="card-type">{card.type}</span>
@@ -489,8 +553,18 @@ function CardsView({
             </button>
           ))}
         </div>
+        {visibleCards.length === 0 && <div className="empty-state">没有匹配的知识卡片。</div>}
+        {exportMarkdown && (
+          <div className="export-panel">
+            <div className="section-head compact">
+              <h3>Markdown 导出预览</h3>
+              <button className="secondary-action" type="button" onClick={() => setExportMarkdown("")}>关闭</button>
+            </div>
+            <textarea readOnly value={exportMarkdown} />
+          </div>
+        )}
       </div>
-      <CardDetail card={selectedCard} cards={cards} relations={relations} />
+      <CardDetail card={selectedCard} cards={cards} relations={relations} onExport={exportOne} />
     </section>
   );
 }
@@ -499,10 +573,13 @@ export function CardDetail({
   card,
   cards = [],
   relations = []
+  ,
+  onExport
 }: {
   card?: KnowledgeCard;
   cards?: KnowledgeCard[];
   relations?: CardRelation[];
+  onExport?: (card: KnowledgeCard) => void;
 }) {
   if (!card) {
     return <aside className="detail-panel empty-state">选择一张卡片查看详情。</aside>;
@@ -516,6 +593,12 @@ export function CardDetail({
     <aside className="detail-panel">
       <span className="card-type">{card.type}</span>
       <h2>{card.title}</h2>
+      {onExport && (
+        <button className="secondary-action" type="button" onClick={() => onExport(card)}>
+          <Download aria-hidden="true" />
+          导出 Markdown
+        </button>
+      )}
       <p className="summary">{card.summary}</p>
       <p>{card.content}</p>
       <div className="tag-row">
