@@ -1,5 +1,6 @@
 mod extractor;
 mod models;
+mod openai;
 mod repository;
 
 use repository::CardMindRepository;
@@ -48,6 +49,23 @@ fn extract_conversation(
 }
 
 #[tauri::command]
+fn preview_extraction(
+    state: State<'_, AppState>,
+    id: String,
+) -> Result<models::ExtractionPreview, String> {
+    state.repository()?.preview_extraction(&id)
+}
+
+#[tauri::command]
+fn confirm_extraction(
+    state: State<'_, AppState>,
+    input: models::ConfirmExtractionInput,
+) -> Result<models::PersistedExtraction, String> {
+    let mut repository = state.repository()?;
+    repository.confirm_extraction(input)
+}
+
+#[tauri::command]
 fn list_cards(state: State<'_, AppState>) -> Result<Vec<models::KnowledgeCard>, String> {
     state.repository()?.list_cards()
 }
@@ -65,6 +83,46 @@ fn list_relations(state: State<'_, AppState>) -> Result<Vec<models::CardRelation
 #[tauri::command]
 fn get_graph(state: State<'_, AppState>) -> Result<models::KnowledgeGraph, String> {
     state.repository()?.get_graph()
+}
+
+#[tauri::command]
+fn get_card_relations(
+    state: State<'_, AppState>,
+    card_id: String,
+) -> Result<Vec<models::CardRelation>, String> {
+    state.repository()?.get_card_relations(&card_id)
+}
+
+#[tauri::command]
+fn seed_sample_data(state: State<'_, AppState>) -> Result<models::PersistedExtraction, String> {
+    let mut repository = state.repository()?;
+    repository.seed_sample_data()
+}
+
+#[tauri::command]
+fn get_openai_status(state: State<'_, AppState>) -> Result<models::OpenAiStatus, String> {
+    state.repository()?.openai_status()
+}
+
+#[tauri::command]
+fn save_openai_api_key(
+    state: State<'_, AppState>,
+    input: models::SaveOpenAiApiKeyInput,
+) -> Result<models::OpenAiStatus, String> {
+    state.repository()?.save_openai_api_key(&input.api_key)
+}
+
+#[tauri::command]
+fn clear_openai_api_key(state: State<'_, AppState>) -> Result<models::OpenAiStatus, String> {
+    state.repository()?.clear_openai_api_key()
+}
+
+#[tauri::command]
+fn set_openai_model(
+    state: State<'_, AppState>,
+    input: models::SetOpenAiModelInput,
+) -> Result<models::OpenAiStatus, String> {
+    state.repository()?.set_openai_model(&input.model)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -90,10 +148,18 @@ pub fn run() {
             list_conversations,
             get_conversation,
             extract_conversation,
+            preview_extraction,
+            confirm_extraction,
             list_cards,
             get_card,
             list_relations,
-            get_graph
+            get_graph,
+            get_card_relations,
+            seed_sample_data,
+            get_openai_status,
+            save_openai_api_key,
+            clear_openai_api_key,
+            set_openai_model
         ])
         .run(tauri::generate_context!())
         .expect("error while running CardMind");

@@ -31,7 +31,7 @@ pub struct KnowledgeCard {
     pub updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct CardRelation {
     pub id: String,
     pub source_card_id: String,
@@ -42,7 +42,7 @@ pub struct CardRelation {
     pub created_at: String,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedCardDraft {
     pub title: String,
     pub summary: String,
@@ -51,7 +51,7 @@ pub struct ExtractedCardDraft {
     pub tags: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedRelationDraft {
     pub source_title: String,
     pub target_title: String,
@@ -60,7 +60,7 @@ pub struct ExtractedRelationDraft {
     pub confidence: f64,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractionResult {
     pub cards: Vec<ExtractedCardDraft>,
     pub relations: Vec<ExtractedRelationDraft>,
@@ -70,6 +70,38 @@ pub struct ExtractionResult {
 pub struct PersistedExtraction {
     pub cards: Vec<KnowledgeCard>,
     pub relations: Vec<CardRelation>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ExtractionPreview {
+    pub cards: Vec<ExtractedCardDraft>,
+    pub relations: Vec<ExtractedRelationDraft>,
+    pub provider: String,
+    pub warning: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ConfirmExtractionInput {
+    pub conversation_id: String,
+    pub cards: Vec<ExtractedCardDraft>,
+    pub relations: Vec<ExtractedRelationDraft>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct OpenAiStatus {
+    pub has_api_key: bool,
+    pub key_source: Option<String>,
+    pub model: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SaveOpenAiApiKeyInput {
+    pub api_key: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SetOpenAiModelInput {
+    pub model: String,
 }
 
 #[derive(Debug, Serialize)]
