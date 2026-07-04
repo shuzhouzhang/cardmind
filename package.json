@@ -1,0 +1,22 @@
+{
+  "name": "cardmind",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local-first personal knowledge graph that turns AI conversations into connected knowledge cards.",
+  "type": "module",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @cardmind/api --filter @cardmind/web dev",
+    "build": "pnpm --recursive build",
+    "check": "pnpm --recursive check",
+    "api:dev": "pnpm --filter @cardmind/api dev",
+    "web:dev": "pnpm --filter @cardmind/web dev"
+  },
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
+  "devDependencies": {
+    "typescript": "^5.5.4"
+  },
+  "packageManager": "pnpm@9.12.3"
+}
