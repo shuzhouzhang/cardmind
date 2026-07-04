@@ -2,7 +2,7 @@
 
 CardMind is a local-first personal knowledge graph that turns AI conversations into connected knowledge cards.
 
-CardMind 把 AI 对话中的有效知识点拆成结构化知识卡片，再通过卡片关系生成个人知识图谱。第一版 MVP 优先保证本地存储、清晰对象模型和可替换的 AI 抽取服务。
+CardMind 把 AI 对话中的有效知识点拆成结构化知识卡片，再通过卡片关系生成个人知识图谱。当前版本已经改造成 Tauri 桌面软件：不需要浏览器、不需要手动启动 API，数据保存在本机 SQLite。
 
 ## Product Positioning
 
@@ -11,20 +11,52 @@ CardMind is not an AI chat archive and not a Markdown-first note app. It keeps o
 ## Tech Stack
 
 - Frontend: React, TypeScript, Vite, React Flow, Lucide icons.
-- Backend: Node.js, Express, TypeScript.
-- Database: SQLite through `better-sqlite3`.
+- Desktop runtime: Tauri v2.
+- Backend: Rust Tauri commands.
+- Database: SQLite through `rusqlite`.
 - Package manager: pnpm workspace.
 
-Node.js + Express was chosen because the MVP frontend is already TypeScript-based, so shared contracts and future AI service adapters can stay lightweight inside one TypeScript workspace.
+The earlier Express API is retained as a legacy local prototype under `apps/api`, but the desktop app does not depend on it at runtime.
 
 ## Project Structure
 
 - `apps/api`: Node.js + Express API, backed by SQLite.
 - `apps/web`: React + Vite frontend.
 - `packages/shared`: shared TypeScript contracts.
+- `src-tauri`: Tauri v2 desktop shell, Rust commands, SQLite repository, and Windows packaging config.
 - `docs/product`: product and domain model documents.
 
-## Local Setup
+## Desktop Development
+
+Install dependencies:
+
+```powershell
+pnpm install
+```
+
+Run the desktop app:
+
+```powershell
+pnpm tauri dev
+```
+
+Build the Windows installer:
+
+```powershell
+pnpm tauri build
+```
+
+The installer is generated at:
+
+```text
+src-tauri\target\release\bundle\nsis\CardMind_0.1.0_x64-setup.exe
+```
+
+The desktop app stores `cardmind.sqlite` in the operating system app data directory for `com.cardmind.app`.
+
+## Legacy Web/API Prototype
+
+The original local web/API prototype is still available for debugging and comparison.
 
 Install dependencies:
 
@@ -64,6 +96,19 @@ $env:Path = 'C:\Users\DELL\.cache\codex-runtimes\codex-primary-runtime\dependenc
 
 ## API
 
+The desktop app uses Tauri commands instead of HTTP. The frontend API facade calls these commands when running inside Tauri:
+
+- `create_conversation`
+- `list_conversations`
+- `get_conversation`
+- `extract_conversation`
+- `list_cards`
+- `get_card`
+- `list_relations`
+- `get_graph`
+
+The legacy Express API still exposes:
+
 - `POST /api/conversations`: import one raw AI conversation.
 - `GET /api/conversations`: list conversations.
 - `GET /api/conversations/:id`: get one conversation.
@@ -75,8 +120,10 @@ $env:Path = 'C:\Users\DELL\.cache\codex-runtimes\codex-primary-runtime\dependenc
 
 ## Current MVP
 
+- Windows desktop app built with Tauri v2.
+- Tauri/Rust command layer for conversations, cards, relations, and graph data.
+- Local SQLite database initialized automatically in app data.
 - Structured SQLite schema for conversations, knowledge cards, and card relations.
-- Local API with conversation import, card/relation reads, and graph output.
 - Mock extraction service that can later be replaced by a real LLM extractor without changing database or frontend graph contracts.
 - React frontend with Home, Import, Cards, and Graph views.
 - React Flow graph where nodes are knowledge cards and edges are card relations.
@@ -85,6 +132,7 @@ $env:Path = 'C:\Users\DELL\.cache\codex-runtimes\codex-primary-runtime\dependenc
 ## Roadmap
 
 - Replace mock extraction with a real model-backed service and prompt/evaluation harness.
+- Add a first-run onboarding flow for local storage location and import examples.
 - Add card deduplication and merge review.
 - Add SQLite full-text search and optional embedding storage.
 - Add Markdown export without changing SQLite as the source of truth.

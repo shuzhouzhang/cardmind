@@ -9,6 +9,7 @@
     "check": "tsc -p tsconfig.json --noEmit"
   },
   "dependencies": {
+    "@tauri-apps/api": "^2.0.0",
     "@xyflow/react": "^12.3.5",
     "lucide-react": "^0.468.0",
     "react": "^18.3.1",

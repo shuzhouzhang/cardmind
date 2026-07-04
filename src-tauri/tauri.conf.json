@@ -1,0 +1,43 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "CardMind",
+  "version": "0.1.0",
+  "identifier": "com.cardmind.app",
+  "build": {
+    "beforeDevCommand": "pnpm --filter @cardmind/web dev",
+    "beforeBuildCommand": "pnpm --filter @cardmind/web build",
+    "devUrl": "http://127.0.0.1:5173",
+    "frontendDist": "../apps/web/dist"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "CardMind",
+        "width": 1280,
+        "height": 820,
+        "minWidth": 960,
+        "minHeight": 640,
+        "resizable": true,
+        "fullscreen": false
+      }
+    ],
+    "security": {
+      "csp": null
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": ["nsis"],
+    "publisher": "CardMind",
+    "shortDescription": "Local-first AI knowledge graph",
+    "longDescription": "CardMind turns AI conversations into connected knowledge cards stored locally.",
+    "windows": {
+      "nsis": {
+        "displayLanguageSelector": false,
+        "installerIcon": null,
+        "installMode": "perMachine",
+        "languages": ["English", "SimpChinese"]
+      }
+    }
+  }
+}
