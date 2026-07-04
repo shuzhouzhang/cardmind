@@ -8,6 +8,8 @@
     "dev": "pnpm --parallel --filter @cardmind/api --filter @cardmind/web dev",
     "build": "pnpm --recursive build",
     "check": "pnpm --recursive check",
+    "verify": "pnpm --recursive check && cargo check --manifest-path src-tauri/Cargo.toml && cargo test --manifest-path src-tauri/Cargo.toml",
+    "build:desktop": "pnpm tauri build",
     "api:dev": "pnpm --filter @cardmind/api dev",
     "web:dev": "pnpm --filter @cardmind/web dev",
     "tauri": "tauri"

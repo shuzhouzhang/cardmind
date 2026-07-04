@@ -1,191 +1,165 @@
 # CardMind
 
-CardMind is a local-first personal knowledge graph that turns AI conversations into connected knowledge cards.
+CardMind is a local-first desktop MVP that turns useful AI conversation fragments into structured knowledge cards and a lightweight personal knowledge graph.
 
-CardMind 把 AI 对话中的有效知识点拆成结构化知识卡片，再通过卡片关系生成个人知识图谱。当前版本是 Tauri 桌面软件：不需要浏览器、不需要手动启动 API，数据保存在本机 SQLite。
+中文定位：CardMind 是一个面向个人学习、项目复盘和面试准备的桌面应用。它不是聊天归档工具，也不是 Markdown-first 笔记软件；原始 AI 对话只是来源材料，真正的核心数据是结构化知识卡片和卡片关系。
 
-## Product Positioning
+## Why
 
-CardMind is not an AI chat archive and not a Markdown-first note app. It keeps original conversations as source material, then extracts reusable knowledge cards as the smallest durable unit. The graph view is generated from structured card and relation data.
+AI 对话很容易越积越多，但整段聊天记录很难复习、检索和复用。CardMind 的目标是把对话中的有效知识点拆成卡片，让用户先预览，再确认保存，最后通过搜索、导出和图谱继续使用这些知识。
+
+## Current MVP
+
+- 导入原始 AI 对话，并保存为 Conversation。
+- 使用 OpenAI Responses API 抽取候选知识卡片和关系；未配置 API Key 或调用失败时回退本地 mock extractor。
+- 用户先看 Extraction Preview，再确认写入 SQLite。
+- 浏览 Knowledge Cards，查看完整内容、标签、来源对话和相关关系。
+- 使用 SQLite FTS5 优先的本地关键词检索，环境不支持 FTS5 时退化为 LIKE 搜索。
+- 导出单张卡片或全部卡片为 Markdown。
+- 使用 React Flow 展示 KnowledgeCard / CardRelation 图谱。
+- 一键加载 demo 数据，覆盖工程复盘、benchmark、TinyMuduo、简历优化和微服务边界场景。
 
 ## Tech Stack
 
-- Frontend: React, TypeScript, Vite, React Flow, Lucide icons.
-- Desktop runtime: Tauri v2.
-- Backend: Rust Tauri commands.
-- Database: SQLite through `rusqlite`.
-- AI extraction: OpenAI Responses API with local mock fallback.
-- Package manager: pnpm workspace.
+- Frontend: React, TypeScript, Vite, React Flow
+- Desktop runtime: Tauri v2
+- Backend: Rust Tauri commands
+- Database: SQLite / rusqlite
+- AI extraction: OpenAI Responses API with local mock fallback
+- Legacy prototype: `apps/api` Express + SQLite, retained only as an early local API prototype
 
-The earlier Express API is retained as a legacy local prototype under `apps/api`, but the desktop app does not depend on it at runtime.
+## Architecture
 
-## Project Structure
+```text
+AI Conversation
+      |
+      v
+Extraction Preview
+      |
+      v
+Knowledge Cards ---- Relations
+      |                    |
+      v                    v
+Search / Export        Graph View
+```
 
-- `apps/api`: Node.js + Express API, backed by SQLite.
-- `apps/web`: React + Vite frontend.
-- `packages/shared`: shared TypeScript contracts.
-- `src-tauri`: Tauri v2 desktop shell, Rust commands, SQLite repository, and Windows packaging config.
-- `docs/product`: product and domain model documents.
+## Data Flow
 
-## Desktop Development
+1. 导入原始 AI 对话。
+2. 调用 OpenAI 或 mock extractor 生成候选卡片和关系。
+3. 用户预览抽取结果。
+4. 用户确认保存。
+5. SQLite 持久化 Conversation、KnowledgeCard、CardRelation。
+6. 前端展示卡片列表、图谱、搜索结果和 Markdown 导出。
 
-Install dependencies:
+## Local-First Boundary
+
+- SQLite 是核心存储，Markdown 只是导出格式。
+- API Key 不写入 SQLite；优先读取 `OPENAI_API_KEY`，也可保存到 Windows Credential Manager。
+- 原始对话默认只保存在本地 SQLite。
+- 只有用户配置 OpenAI API Key 并主动触发抽取时，对话内容才会被发送给 OpenAI。
+- 不包含云同步、登录系统、RAG、向量数据库或复杂知识推理。
+
+## Run Locally
 
 ```powershell
 pnpm install
-```
-
-Run the desktop app:
-
-```powershell
 pnpm tauri dev
 ```
 
-Build the Windows installer:
+Build the desktop installer:
 
 ```powershell
-pnpm tauri build
+pnpm build:desktop
 ```
 
-The installer is generated at:
+Current Windows installer output:
 
 ```text
 src-tauri\target\release\bundle\nsis\CardMind_0.1.0_x64-setup.exe
 ```
 
-The desktop app stores `cardmind.sqlite` in the operating system app data directory for `com.cardmind.app`.
-
-On Windows, the current data path is:
-
-```text
-C:\Users\DELL\AppData\Roaming\com.cardmind.app\cardmind.sqlite
-```
-
 ## OpenAI API Setup
 
-CardMind can use OpenAI to extract knowledge cards. If no API key is configured, it falls back to the local mock extractor so the app remains usable offline.
-
-Recommended options:
-
-1. Set a Windows environment variable:
+Option 1: set an environment variable.
 
 ```powershell
 setx OPENAI_API_KEY "your_api_key_here"
 ```
 
-2. Or paste the key in the CardMind sidebar. The app stores it in Windows Credential Manager, not in SQLite.
+Option 2: paste the key in the CardMind sidebar. It is stored in Windows Credential Manager.
 
-Create or manage keys here:
+Create or manage keys at:
 
 ```text
 https://platform.openai.com/api-keys
 ```
 
-The API key is treated as a secret and is only used by the Rust/Tauri backend. It is not exposed to browser code and is not stored as Markdown or plain SQLite content.
-
-## Legacy Web/API Prototype
-
-The original local web/API prototype is still available for debugging and comparison.
-
-Install dependencies:
-
-```powershell
-pnpm install
-```
-
-Initialize the local SQLite database:
-
-```powershell
-pnpm --filter @cardmind/api db:init
-```
-
-Run the API:
-
-```powershell
-pnpm --filter @cardmind/api dev
-```
-
-Run the web app in another terminal:
-
-```powershell
-pnpm --filter @cardmind/web dev
-```
-
-Open:
-
-- Web: `http://127.0.0.1:5173`
-- API health: `http://127.0.0.1:4000/api/health`
-
-On this machine, `node` and `pnpm` were not on the system PATH. Verification used the Codex bundled runtime by temporarily prepending:
-
-```powershell
-$env:Path = 'C:\Users\DELL\.cache\codex-runtimes\codex-primary-runtime\dependencies\node\bin;' + $env:Path
-& 'C:\Users\DELL\.cache\codex-runtimes\codex-primary-runtime\dependencies\bin\pnpm.cmd' install
-```
-
-## API
-
-The desktop app uses Tauri commands instead of HTTP. The frontend API facade calls these commands when running inside Tauri:
-
-- `create_conversation`
-- `list_conversations`
-- `get_conversation`
-- `extract_conversation`
-- `preview_extraction`
-- `confirm_extraction`
-- `list_cards`
-- `get_card`
-- `list_relations`
-- `get_card_relations`
-- `get_graph`
-- `seed_sample_data`
-- `get_openai_status`
-- `save_openai_api_key`
-- `clear_openai_api_key`
-- `set_openai_model`
-
-The legacy Express API still exposes:
-
-- `POST /api/conversations`: import one raw AI conversation.
-- `GET /api/conversations`: list conversations.
-- `GET /api/conversations/:id`: get one conversation.
-- `POST /api/conversations/:id/extract`: run mock extraction and persist cards/relations.
-- `GET /api/cards`: list knowledge cards.
-- `GET /api/cards/:id`: get one card.
-- `GET /api/relations`: list card relations.
-- `GET /api/graph`: return graph `nodes` and `edges` for the frontend.
-
-## Current MVP
-
-- Windows desktop app built with Tauri v2.
-- Tauri/Rust command layer for conversations, cards, relations, and graph data.
-- Local SQLite database initialized automatically in app data.
-- Chinese desktop UI with Home, Import, Cards, and Graph localized as 首页、导入、卡片、图谱.
-- Home dashboard with conversation/card/relation counts, recent content, empty state, and sample data loader.
-- Two-step extraction flow: preview generated cards first, then confirm to save.
-- OpenAI API extraction with model selection and local mock fallback.
-- Structured SQLite schema for conversations, knowledge cards, and card relations.
-- Mock extraction service that can later be replaced by a real LLM extractor without changing database or frontend graph contracts.
-- React frontend with Home, Import, Cards, and Graph views.
-- React Flow graph where nodes are knowledge cards and edges are card relations.
-- Node click detail panel showing card summary, mastery status, and source conversation id.
-
 ## Verification
+
+Fast verification:
+
+```powershell
+pnpm verify
+```
+
+Equivalent commands:
 
 ```powershell
 pnpm --recursive check
-cargo check --manifest-path src-tauri\Cargo.toml
-cargo test --manifest-path src-tauri\Cargo.toml
-pnpm tauri build
+cargo check --manifest-path src-tauri/Cargo.toml
+cargo test --manifest-path src-tauri/Cargo.toml
 ```
+
+Desktop build:
+
+```powershell
+pnpm build:desktop
+```
+
+## Demo
+
+See [docs/demo.md](docs/demo.md).
+
+In a clean database, open the app and click “加载示例数据”. The demo creates cards about:
+
+- 视频点播后端修复记录
+- 内存池 benchmark 分析
+- TinyMuduo Reactor 事件循环问答
+- 简历优化建议
+- 微服务拆分边界
+
+Then try Cards search, Markdown export, and Graph view.
+
+## Screenshots
+
+Screenshots are intentionally not included yet. Future screenshots should be placed under:
+
+```text
+docs/screenshots/
+```
+
+## Current Limitations
+
+- OpenAI extraction quality is MVP-level and still needs prompt/evaluation tuning.
+- Search is keyword-based; it is not semantic search.
+- Markdown export is plain text output inside the app; no file picker flow yet.
+- No card editing, delete, merge, or deduplication UI yet.
+- No cloud sync or multi-device account.
+- Legacy `apps/api` remains in the repository but is not the desktop runtime path.
 
 ## Roadmap
 
-- Add prompt/evaluation harness for OpenAI extraction quality.
-- Add a first-run onboarding flow for local storage location and import examples.
-- Add card deduplication and merge review.
-- Add SQLite full-text search and optional embedding storage.
-- Add Markdown export without changing SQLite as the source of truth.
-- Add spaced repetition metadata and review workflows.
-- Add local backup/sync options.
-- Add import adapters for ChatGPT, Claude, and Markdown/HTML exports.
+- Add card edit/delete/merge.
+- Add better prompt evaluation for extraction quality.
+- Add import adapters for common AI chat export formats.
+- Add file-save flow for Markdown export.
+- Add lightweight review status workflows.
+
+## Interview Talking Points
+
+- Designed a local-first desktop MVP using Tauri, React, Rust commands, and SQLite.
+- Split AI conversation import from structured knowledge storage: Conversation is source material, KnowledgeCard is the reusable unit.
+- Implemented preview-before-persist flow so generated cards are not silently written to the database.
+- Added OpenAI extraction with mock fallback and kept API Key out of SQLite/plain frontend logs.
+- Added SQLite-backed search, Markdown export, demo data, and verification scripts to close a realistic MVP loop.
