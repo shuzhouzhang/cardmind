@@ -255,7 +255,8 @@ h2 {
   color: #607076;
 }
 
-.cards-layout {
+.cards-layout,
+.graph-layout {
   display: grid;
   grid-template-columns: minmax(320px, 1fr) minmax(300px, 420px);
   gap: 20px;
@@ -351,23 +352,80 @@ dd {
   overflow-wrap: anywhere;
 }
 
-.graph-placeholder {
-  display: grid;
-  place-items: center;
-  min-height: 520px;
-  text-align: center;
+.graph-workspace {
+  min-height: calc(100vh - 56px);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at center, rgba(114, 214, 201, 0.16), transparent 38%),
+    #f9fbfb;
+  border: 1px solid #d9e3e5;
+  border-radius: 8px;
 }
 
-.graph-placeholder svg {
-  width: 48px;
-  height: 48px;
-  color: #0f766e;
+.graph-toolbar {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  justify-content: space-between;
+  padding: 16px 18px;
+  background: rgba(255, 255, 255, 0.88);
+  border-bottom: 1px solid #e1eaec;
+  backdrop-filter: blur(10px);
+}
+
+.graph-workspace .react-flow {
+  height: calc(100vh - 154px);
+  min-height: 520px;
+}
+
+.graph-node {
+  color: #f8fcfd;
+  background: #143034;
+  border: 1px solid #4aa89e;
+  border-radius: 999px;
+  box-shadow: 0 12px 28px rgba(12, 35, 39, 0.18);
+  font-weight: 800;
+}
+
+.graph-node.selected {
+  border-color: #f59e0b;
+  box-shadow:
+    0 0 0 5px rgba(245, 158, 11, 0.18),
+    0 12px 28px rgba(12, 35, 39, 0.2);
+}
+
+.react-flow__edge-path {
+  stroke: #52777c;
+  stroke-width: 2;
+}
+
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke: #0f766e;
+}
+
+.react-flow__edge-text {
+  fill: #233f45;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.react-flow__controls-button {
+  border-color: #d9e3e5;
+}
+
+.graph-empty {
+  margin: 24px;
+  min-height: 320px;
+  display: grid;
+  place-items: center;
+  text-align: center;
 }
 
 @media (max-width: 860px) {
   .shell,
   .home-view,
-  .cards-layout {
+  .cards-layout,
+  .graph-layout {
     grid-template-columns: 1fr;
   }
 

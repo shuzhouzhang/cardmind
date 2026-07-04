@@ -2,6 +2,7 @@ import { BookOpen, BrainCircuit, FilePlus2, Home, Network } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "./api";
 import type { Conversation, KnowledgeCard } from "./types";
+import { GraphView } from "./GraphView";
 
 type View = "home" | "import" | "cards" | "graph";
 
@@ -86,7 +87,7 @@ export function App() {
             onSelect={(card) => setSelectedCardId(card.id)}
           />
         )}
-        {activeView === "graph" && <GraphPlaceholder cards={cards} selectedCard={selectedCard} />}
+        {activeView === "graph" && <GraphView fallbackCard={selectedCard} />}
       </main>
     </div>
   );
@@ -216,20 +217,7 @@ function CardsView({
   );
 }
 
-function GraphPlaceholder({ cards, selectedCard }: { cards: KnowledgeCard[]; selectedCard?: KnowledgeCard }) {
-  return (
-    <section className="view cards-layout">
-      <div className="graph-placeholder">
-        <Network aria-hidden="true" />
-        <h2>Graph view is staged for React Flow</h2>
-        <p>{cards.length} cards are ready to become graph nodes in the next stage.</p>
-      </div>
-      <CardDetail card={selectedCard} />
-    </section>
-  );
-}
-
-function CardDetail({ card }: { card?: KnowledgeCard }) {
+export function CardDetail({ card }: { card?: KnowledgeCard }) {
   if (!card) {
     return <aside className="detail-panel empty-state">Select a card to inspect its detail and source conversation.</aside>;
   }
