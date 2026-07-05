@@ -73,6 +73,16 @@ export interface SearchCardsResult {
   engine: "fts5" | "like" | string;
 }
 
+export interface UpdateCardInput {
+  id: string;
+  title: string;
+  summary: string;
+  content: string;
+  type: string;
+  tags: string[];
+  mastery_status: KnowledgeCard["mastery_status"];
+}
+
 export interface KnowledgeGraph {
   nodes: Array<{
     id: string;

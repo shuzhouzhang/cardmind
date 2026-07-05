@@ -110,6 +110,17 @@ pub struct SearchCardsInput {
     pub tag: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct UpdateCardInput {
+    pub id: String,
+    pub title: String,
+    pub summary: String,
+    pub content: String,
+    pub r#type: String,
+    pub tags: Vec<String>,
+    pub mastery_status: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct SearchCardsResult {
     pub cards: Vec<KnowledgeCard>,

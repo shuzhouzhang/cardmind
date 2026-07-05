@@ -325,7 +325,8 @@ h3 {
 }
 
 .primary-action,
-.secondary-action {
+.secondary-action,
+.danger-action {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -348,17 +349,33 @@ h3 {
   border-color: #c7d5d8;
 }
 
+.danger-action {
+  color: #9f1d1d;
+  background: #fff7f7;
+  border-color: #f1b5b5;
+}
+
 .primary-action:disabled,
 .secondary-action:disabled,
+.danger-action:disabled,
 .sidebar-actions button:disabled {
   cursor: not-allowed;
   opacity: 0.5;
 }
 
 .primary-action svg,
-.secondary-action svg {
+.secondary-action svg,
+.danger-action svg {
   width: 17px;
   height: 17px;
+}
+
+.toolbar-actions,
+.detail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
 }
 
 .full-width {
@@ -393,7 +410,10 @@ h3 {
 
 .text-input,
 .tag-input,
-.conversation-input {
+.conversation-input,
+.compact-textarea,
+.relation-editor select,
+.edit-form select {
   width: 100%;
   color: #1f2933;
   background: #ffffff;
@@ -412,6 +432,23 @@ h3 {
   padding: 0 12px;
 }
 
+.compact-textarea {
+  min-height: 94px;
+  padding: 10px 12px;
+  resize: vertical;
+  line-height: 1.5;
+}
+
+.compact-textarea.tall {
+  min-height: 180px;
+}
+
+.relation-editor select,
+.edit-form select {
+  min-height: 40px;
+  padding: 0 12px;
+}
+
 .conversation-input {
   min-height: 360px;
   padding: 16px;
@@ -420,7 +457,10 @@ h3 {
 }
 
 .text-input:focus,
-.conversation-input:focus {
+.conversation-input:focus,
+.compact-textarea:focus,
+.relation-editor select:focus,
+.edit-form select:focus {
   outline: 3px solid rgba(15, 118, 110, 0.18);
   border-color: #0f766e;
 }
@@ -509,6 +549,12 @@ h3 {
   background: #f7fafb;
 }
 
+.inline-fields {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 8px;
+}
+
 .knowledge-card:hover {
   border-color: #0f766e;
   box-shadow: 0 10px 20px rgba(15, 118, 110, 0.09);
@@ -560,8 +606,7 @@ h3 {
   gap: 6px;
 }
 
-.tag-row span,
-.relation-preview span {
+.tag-row span {
   padding: 3px 7px;
   color: #52646b;
   background: #eef3f4;
@@ -569,14 +614,28 @@ h3 {
   font-size: 0.75rem;
 }
 
-.relation-preview {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+.relation-preview,
+.edit-form {
+  display: grid;
+  gap: 10px;
 }
 
 .relation-preview h4 {
-  flex-basis: 100%;
+  margin: 0;
+}
+
+.relation-editor {
+  display: grid;
+  grid-template-columns: minmax(120px, 1fr) 92px minmax(120px, 1fr);
+  gap: 8px;
+  padding: 10px;
+  background: #f7fafb;
+  border: 1px solid #d9e3e5;
+  border-radius: 8px;
+}
+
+.relation-editor .text-input:last-child {
+  grid-column: 1 / -1;
 }
 
 .warning-text {

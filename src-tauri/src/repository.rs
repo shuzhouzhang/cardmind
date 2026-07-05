@@ -2,7 +2,7 @@ use crate::extractor::extract_knowledge_cards;
 use crate::models::{
     CardRelation, ConfirmExtractionInput, Conversation, CreateConversationInput, ExtractionPreview,
     ExtractedCardDraft, ExtractedRelationDraft, GraphEdge, GraphNode, KnowledgeCard, KnowledgeGraph,
-    OpenAiStatus, PersistedExtraction,
+    OpenAiStatus, PersistedExtraction, UpdateCardInput,
     SearchCardsInput, SearchCardsResult,
 };
 use crate::openai::extract_with_openai_or_mock;
@@ -335,6 +335,76 @@ impl CardMindRepository {
             .map_err(|error| error.to_string())
     }
 
+    pub fn update_card(&self, input: UpdateCardInput) -> Result<KnowledgeCard, String> {
+        let existing = self
+            .get_card(&input.id)?
+            .ok_or_else(|| "Knowledge card not found".to_string())?;
+        let title = input.title.trim();
+        let summary = input.summary.trim();
+        let content = input.content.trim();
+        let card_type = input.r#type.trim();
+        if title.is_empty() || summary.is_empty() || content.is_empty() || card_type.is_empty() {
+            return Err("标题、摘要、内容和类型不能为空。".to_string());
+        }
+
+        let mastery_status = match input.mastery_status.trim() {
+            "learning" => "learning",
+            "mastered" => "mastered",
+            _ => "new",
+        };
+        let tags = input
+            .tags
+            .into_iter()
+            .map(|tag| tag.trim().to_string())
+            .filter(|tag| !tag.is_empty())
+            .collect::<Vec<_>>();
+        let tags_json = serde_json::to_string(&tags).map_err(|error| error.to_string())?;
+        let updated_at = now_iso();
+
+        self.connection
+            .execute(
+                "UPDATE knowledge_cards
+                 SET title = ?1, summary = ?2, content = ?3, type = ?4, tags = ?5, mastery_status = ?6, updated_at = ?7
+                 WHERE id = ?8",
+                params![title, summary, content, card_type, tags_json, mastery_status, updated_at, input.id],
+            )
+            .map_err(|error| error.to_string())?;
+
+        let _ = self
+            .connection
+            .execute("DELETE FROM knowledge_cards_fts WHERE card_id = ?1", [existing.id.as_str()]);
+        let _ = self.connection.execute(
+            "INSERT INTO knowledge_cards_fts (card_id, title, summary, content, tags)
+             VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![
+                existing.id,
+                title,
+                summary,
+                content,
+                serde_json::to_string(&tags).unwrap_or_default()
+            ],
+        );
+
+        self.get_card(&input.id)?
+            .ok_or_else(|| "Knowledge card not found".to_string())
+    }
+
+    pub fn delete_card(&self, id: &str) -> Result<(), String> {
+        let changed = self
+            .connection
+            .execute("DELETE FROM knowledge_cards WHERE id = ?1", [id])
+            .map_err(|error| error.to_string())?;
+        let _ = self
+            .connection
+            .execute("DELETE FROM knowledge_cards_fts WHERE card_id = ?1", [id]);
+
+        if changed == 0 {
+            return Err("Knowledge card not found".to_string());
+        }
+
+        Ok(())
+    }
+
     pub fn search_cards(&self, input: SearchCardsInput) -> Result<SearchCardsResult, String> {
         let query = input.query.trim().to_string();
         if query.is_empty() && input.tag.as_deref().unwrap_or_default().trim().is_empty() {
@@ -422,6 +492,19 @@ impl CardMindRepository {
     pub fn export_all_cards_markdown(&self) -> Result<String, String> {
         let cards = self.list_cards()?;
         Ok(self.render_markdown_export(&cards))
+    }
+
+    pub fn export_card_markdown_file(&self, id: &str, export_dir: PathBuf) -> Result<String, String> {
+        let card = self
+            .get_card(id)?
+            .ok_or_else(|| "Knowledge card not found".to_string())?;
+        let filename = format!("{}.md", safe_filename(&card.title));
+        self.write_markdown_file(&[card], export_dir, &filename)
+    }
+
+    pub fn export_all_cards_markdown_file(&self, export_dir: PathBuf) -> Result<String, String> {
+        let cards = self.list_cards()?;
+        self.write_markdown_file(&cards, export_dir, "CardMind Export.md")
     }
 
     pub fn get_card_relations(&self, card_id: &str) -> Result<Vec<CardRelation>, String> {
@@ -789,6 +872,18 @@ impl CardMindRepository {
 
         output
     }
+
+    fn write_markdown_file(
+        &self,
+        cards: &[KnowledgeCard],
+        export_dir: PathBuf,
+        filename: &str,
+    ) -> Result<String, String> {
+        std::fs::create_dir_all(&export_dir).map_err(|error| error.to_string())?;
+        let path = export_dir.join(filename);
+        std::fs::write(&path, self.render_markdown_export(cards)).map_err(|error| error.to_string())?;
+        Ok(path.to_string_lossy().to_string())
+    }
 }
 
 fn keyring_entry() -> Option<Entry> {
@@ -860,6 +955,22 @@ fn create_title(raw_content: &str) -> String {
         .unwrap_or_else(|| "Untitled conversation".to_string())
 }
 
+fn safe_filename(value: &str) -> String {
+    let cleaned = value
+        .chars()
+        .map(|character| match character {
+            '<' | '>' | ':' | '"' | '/' | '\\' | '|' | '?' | '*' => '-',
+            _ => character,
+        })
+        .collect::<String>();
+    let trimmed = cleaned.trim().trim_matches('.').to_string();
+    if trimmed.is_empty() {
+        "CardMind Card".to_string()
+    } else {
+        trimmed.chars().take(80).collect()
+    }
+}
+
 fn sanitize_fts_query(query: &str) -> String {
     query
         .split_whitespace()
@@ -881,7 +992,7 @@ fn sanitize_fts_query(query: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::CardMindRepository;
-    use crate::models::{CreateConversationInput, SearchCardsInput};
+    use crate::models::{CreateConversationInput, SearchCardsInput, UpdateCardInput};
     use tempfile::tempdir;
 
     #[test]
@@ -1000,5 +1111,72 @@ mod tests {
         assert!(markdown.contains("TinyMuduo Reactor 事件循环"));
         assert!(markdown.contains("摘要："));
         assert!(markdown.contains(&card.source_conversation_id));
+    }
+
+    #[test]
+    fn update_card_refreshes_search_index() {
+        let tempdir = tempdir().expect("create tempdir");
+        let mut repository =
+            CardMindRepository::open(tempdir.path().join("cardmind.sqlite")).expect("open db");
+
+        repository.seed_sample_data().expect("seed sample data");
+        let card = repository
+            .list_cards()
+            .expect("list cards")
+            .into_iter()
+            .find(|card| card.title == "简历优化建议")
+            .expect("find demo card");
+        let updated = repository
+            .update_card(UpdateCardInput {
+                id: card.id,
+                title: "简历证据链整理".to_string(),
+                summary: "把项目经历整理成可验证证据链。".to_string(),
+                content: "新增一个独特搜索词 portfolio-proof，确保 FTS 或 LIKE 索引同步更新。".to_string(),
+                r#type: "principle".to_string(),
+                tags: vec!["简历".to_string(), "证据链".to_string()],
+                mastery_status: "learning".to_string(),
+            })
+            .expect("update card");
+
+        let result = repository
+            .search_cards(SearchCardsInput {
+                query: "portfolio-proof".to_string(),
+                tag: Some("证据链".to_string()),
+            })
+            .expect("search updated card");
+
+        assert_eq!(updated.mastery_status, "learning");
+        assert_eq!(result.cards.len(), 1);
+        assert_eq!(result.cards[0].title, "简历证据链整理");
+    }
+
+    #[test]
+    fn delete_card_removes_relations_and_markdown_file_is_written() {
+        let tempdir = tempdir().expect("create tempdir");
+        let mut repository =
+            CardMindRepository::open(tempdir.path().join("cardmind.sqlite")).expect("open db");
+
+        repository.seed_sample_data().expect("seed sample data");
+        let export_path = repository
+            .export_all_cards_markdown_file(tempdir.path().join("exports"))
+            .expect("export markdown file");
+        let exported = std::fs::read_to_string(&export_path).expect("read exported markdown");
+        assert!(exported.contains("# CardMind Export"));
+        assert!(exported.contains("来源对话："));
+
+        let card = repository
+            .list_cards()
+            .expect("list cards")
+            .into_iter()
+            .find(|card| card.title == "简历优化建议")
+            .expect("find related card");
+        repository.delete_card(&card.id).expect("delete card");
+
+        assert!(repository.get_card(&card.id).unwrap().is_none());
+        assert!(repository
+            .list_relations()
+            .unwrap()
+            .iter()
+            .all(|relation| relation.source_card_id != card.id && relation.target_card_id != card.id));
     }
 }

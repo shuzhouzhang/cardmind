@@ -7,9 +7,11 @@ import {
   KeyRound,
   Network,
   Download,
+  Save,
   Search,
   Settings2,
-  Sparkles
+  Sparkles,
+  Trash2
 } from "lucide-react";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -38,6 +40,17 @@ function formatErrorMessage(error: unknown, fallback: string) {
   }
 
   return fallback;
+}
+
+function parseTags(value: string) {
+  return value
+    .split(/[,，\n]/)
+    .map((tag) => tag.trim())
+    .filter(Boolean);
+}
+
+function formatTags(tags: string[]) {
+  return tags.join(", ");
 }
 
 const navItems: Array<{ id: View; label: string; icon: typeof Home }> = [
@@ -174,6 +187,11 @@ export function App() {
             onSelect={(card) => setSelectedCardId(card.id)}
             onImport={() => setActiveView("import")}
             onSeedSample={seedSampleData}
+            onChanged={async (message, nextSelectedCardId) => {
+              setStatus(message);
+              await refreshData();
+              setSelectedCardId(nextSelectedCardId ?? null);
+            }}
           />
         )}
         {activeView === "graph" && (
@@ -331,9 +349,34 @@ function ImportView({ onDone }: { onDone: (message: string) => Promise<void> }) 
       });
       await onDone(`已保存 ${result.cards.length} 张知识卡片和 ${result.relations.length} 条关系`);
       setPreview(null);
+      setConversation(null);
     } finally {
       setIsBusy(false);
     }
+  }
+
+  function updatePreviewCard(index: number, nextCard: ExtractedCardDraft) {
+    setPreview((current) =>
+      current
+        ? {
+            ...current,
+            cards: current.cards.map((card, cardIndex) => (cardIndex === index ? nextCard : card))
+          }
+        : current
+    );
+  }
+
+  function updatePreviewRelation(index: number, nextRelation: ExtractedRelationDraft) {
+    setPreview((current) =>
+      current
+        ? {
+            ...current,
+            relations: current.relations.map((relation, relationIndex) =>
+              relationIndex === index ? nextRelation : relation
+            )
+          }
+        : current
+    );
   }
 
   return (
@@ -376,7 +419,13 @@ function ImportView({ onDone }: { onDone: (message: string) => Promise<void> }) 
           </div>
         </div>
 
-        <PreviewPanel preview={preview} isBusy={isBusy} onConfirm={confirmCards} />
+        <PreviewPanel
+          preview={preview}
+          isBusy={isBusy}
+          onConfirm={confirmCards}
+          onCardChange={updatePreviewCard}
+          onRelationChange={updatePreviewRelation}
+        />
       </div>
     </section>
   );
@@ -385,11 +434,15 @@ function ImportView({ onDone }: { onDone: (message: string) => Promise<void> }) 
 function PreviewPanel({
   preview,
   isBusy,
-  onConfirm
+  onConfirm,
+  onCardChange,
+  onRelationChange
 }: {
   preview: ExtractionPreview | null;
   isBusy: boolean;
   onConfirm: () => void;
+  onCardChange: (index: number, card: ExtractedCardDraft) => void;
+  onRelationChange: (index: number, relation: ExtractedRelationDraft) => void;
 }) {
   if (!preview) {
     return (
@@ -410,17 +463,23 @@ function PreviewPanel({
       </div>
       {preview.warning && <p className="warning-text">{preview.warning}</p>}
       <div className="preview-list">
-        {preview.cards.map((card) => (
-          <PreviewCard key={card.title} card={card} />
+        {preview.cards.map((card, index) => (
+          <PreviewCard
+            key={`${card.title}-${index}`}
+            card={card}
+            onChange={(nextCard) => onCardChange(index, nextCard)}
+          />
         ))}
       </div>
       {preview.relations.length > 0 && (
         <div className="relation-preview">
           <h4>关系预览</h4>
-          {preview.relations.map((relation) => (
-            <span key={`${relation.source_title}-${relation.target_title}-${relation.relation_type}`}>
-              {relation.source_title} · {relationLabels[relation.relation_type]} · {relation.target_title}
-            </span>
+          {preview.relations.map((relation, index) => (
+            <PreviewRelation
+              key={`${relation.source_title}-${relation.target_title}-${relation.relation_type}-${index}`}
+              relation={relation}
+              onChange={(nextRelation) => onRelationChange(index, nextRelation)}
+            />
           ))}
         </div>
       )}
@@ -431,17 +490,88 @@ function PreviewPanel({
   );
 }
 
-function PreviewCard({ card }: { card: ExtractedCardDraft }) {
+function PreviewCard({
+  card,
+  onChange
+}: {
+  card: ExtractedCardDraft;
+  onChange: (card: ExtractedCardDraft) => void;
+}) {
   return (
     <div className="preview-card">
-      <span className="card-type">{card.type}</span>
-      <strong>{card.title}</strong>
-      <p>{card.summary}</p>
-      <div className="tag-row">
-        {card.tags.map((tag) => (
-          <span key={tag}>{tag}</span>
-        ))}
+      <input
+        className="text-input"
+        value={card.title}
+        onChange={(event) => onChange({ ...card, title: event.target.value })}
+        placeholder="卡片标题"
+      />
+      <input
+        className="text-input"
+        value={card.summary}
+        onChange={(event) => onChange({ ...card, summary: event.target.value })}
+        placeholder="一句话解释"
+      />
+      <textarea
+        className="compact-textarea"
+        value={card.content}
+        onChange={(event) => onChange({ ...card, content: event.target.value })}
+        placeholder="完整内容"
+      />
+      <div className="inline-fields">
+        <input
+          className="text-input"
+          value={card.type}
+          onChange={(event) => onChange({ ...card, type: event.target.value })}
+          placeholder="类型"
+        />
+        <input
+          className="text-input"
+          value={formatTags(card.tags)}
+          onChange={(event) => onChange({ ...card, tags: parseTags(event.target.value) })}
+          placeholder="标签，用逗号分隔"
+        />
       </div>
+    </div>
+  );
+}
+
+function PreviewRelation({
+  relation,
+  onChange
+}: {
+  relation: ExtractedRelationDraft;
+  onChange: (relation: ExtractedRelationDraft) => void;
+}) {
+  return (
+    <div className="relation-editor">
+      <input
+        className="text-input"
+        value={relation.source_title}
+        onChange={(event) => onChange({ ...relation, source_title: event.target.value })}
+        placeholder="来源卡片标题"
+      />
+      <select
+        value={relation.relation_type}
+        onChange={(event) => onChange({ ...relation, relation_type: event.target.value as RelationType })}
+      >
+        {Object.entries(relationLabels).map(([value, label]) => (
+          <option key={value} value={value}>
+            {label}
+          </option>
+        ))}
+      </select>
+      <input
+        className="text-input"
+        value={relation.target_title}
+        onChange={(event) => onChange({ ...relation, target_title: event.target.value })}
+        placeholder="目标卡片标题"
+      />
+      <input
+        className="text-input"
+        value={relation.reason}
+        onChange={(event) => onChange({ ...relation, reason: event.target.value })}
+        placeholder="关系理由"
+      />
     </div>
   );
 }
@@ -452,7 +582,8 @@ function CardsView({
   selectedCard,
   onSelect,
   onImport,
-  onSeedSample
+  onSeedSample,
+  onChanged
 }: {
   cards: KnowledgeCard[];
   relations: CardRelation[];
@@ -460,6 +591,7 @@ function CardsView({
   onSelect: (card: KnowledgeCard) => void;
   onImport: () => void;
   onSeedSample: () => void;
+  onChanged: (message: string, nextSelectedCardId?: string | null) => Promise<void>;
 }) {
   const [query, setQuery] = useState("");
   const [tagFilter, setTagFilter] = useState("");
@@ -488,9 +620,38 @@ function CardsView({
     setExportMarkdown(markdown);
   }
 
+  async function exportAllToFile() {
+    const path = await api.exportAllCardsMarkdownFile();
+    await onChanged(`已导出全部卡片到：${path}`, selectedCard?.id);
+  }
+
   async function exportOne(card: KnowledgeCard) {
     const markdown = await api.exportCardMarkdown(card.id);
     setExportMarkdown(markdown);
+  }
+
+  async function exportOneToFile(card: KnowledgeCard) {
+    const path = await api.exportCardMarkdownFile(card.id);
+    await onChanged(`已导出卡片到：${path}`, card.id);
+  }
+
+  async function saveCard(card: KnowledgeCard) {
+    const updated = await api.updateCard({
+      id: card.id,
+      title: card.title,
+      summary: card.summary,
+      content: card.content,
+      type: card.type,
+      tags: card.tags,
+      mastery_status: card.mastery_status
+    });
+    await onChanged(`已更新卡片：${updated.title}`, updated.id);
+  }
+
+  async function deleteCard(card: KnowledgeCard) {
+    await api.deleteCard(card.id);
+    const nextCard = cards.find((item) => item.id !== card.id);
+    await onChanged(`已删除卡片：${card.title}`, nextCard?.id ?? null);
   }
 
   if (cards.length === 0) {
@@ -516,10 +677,16 @@ function CardsView({
             <p className="eyebrow">卡片</p>
             <h2>{visibleCards.length} / {cards.length} 张知识卡片</h2>
           </div>
-          <button className="secondary-action" type="button" onClick={exportAll}>
-            <Download aria-hidden="true" />
-            导出全部
-          </button>
+          <div className="toolbar-actions">
+            <button className="secondary-action" type="button" onClick={exportAll}>
+              <Download aria-hidden="true" />
+              预览全部
+            </button>
+            <button className="primary-action" type="button" onClick={exportAllToFile}>
+              <Save aria-hidden="true" />
+              导出文件
+            </button>
+          </div>
         </div>
         <div className="search-panel">
           <div className="search-row">
@@ -576,7 +743,15 @@ function CardsView({
           </div>
         )}
       </div>
-      <CardDetail card={selectedCard} cards={cards} relations={relations} onExport={exportOne} />
+      <CardDetail
+        card={selectedCard}
+        cards={cards}
+        relations={relations}
+        onExport={exportOne}
+        onExportFile={exportOneToFile}
+        onSave={saveCard}
+        onDelete={deleteCard}
+      />
     </section>
   );
 }
@@ -586,48 +761,186 @@ export function CardDetail({
   cards = [],
   relations = []
   ,
-  onExport
+  onExport,
+  onExportFile,
+  onSave,
+  onDelete
 }: {
   card?: KnowledgeCard;
   cards?: KnowledgeCard[];
   relations?: CardRelation[];
   onExport?: (card: KnowledgeCard) => void;
+  onExportFile?: (card: KnowledgeCard) => void;
+  onSave?: (card: KnowledgeCard) => Promise<void>;
+  onDelete?: (card: KnowledgeCard) => Promise<void>;
 }) {
+  const [isEditing, setIsEditing] = useState(false);
+  const [draft, setDraft] = useState<KnowledgeCard | null>(card ?? null);
+  const [isBusy, setIsBusy] = useState(false);
+
+  useEffect(() => {
+    setDraft(card ?? null);
+    setIsEditing(false);
+  }, [card?.id]);
+
   if (!card) {
     return <aside className="detail-panel empty-state">选择一张卡片查看详情。</aside>;
   }
 
+  const currentCard = card;
+  const visibleCard = isEditing && draft ? draft : card;
   const relatedRelations = relations.filter(
-    (relation) => relation.source_card_id === card.id || relation.target_card_id === card.id
+    (relation) => relation.source_card_id === currentCard.id || relation.target_card_id === currentCard.id
   );
+
+  async function saveDraft() {
+    if (!draft || !onSave) {
+      return;
+    }
+
+    setIsBusy(true);
+    try {
+      await onSave(draft);
+      setIsEditing(false);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function deleteCurrentCard() {
+    if (!onDelete) {
+      return;
+    }
+
+    const confirmed = window.confirm(`确定删除知识卡片“${currentCard.title}”吗？相关关系也会被删除。`);
+    if (!confirmed) {
+      return;
+    }
+
+    setIsBusy(true);
+    try {
+      await onDelete(currentCard);
+    } finally {
+      setIsBusy(false);
+    }
+  }
 
   return (
     <aside className="detail-panel">
-      <span className="card-type">{card.type}</span>
-      <h2>{card.title}</h2>
-      {onExport && (
-        <button className="secondary-action" type="button" onClick={() => onExport(card)}>
-          <Download aria-hidden="true" />
-          导出 Markdown
-        </button>
+      {isEditing && draft ? (
+        <div className="edit-form">
+          <label className="field-label" htmlFor="card-title">标题</label>
+          <input
+            id="card-title"
+            className="text-input"
+            value={draft.title}
+            onChange={(event) => setDraft({ ...draft, title: event.target.value })}
+          />
+          <label className="field-label" htmlFor="card-summary">一句话解释</label>
+          <input
+            id="card-summary"
+            className="text-input"
+            value={draft.summary}
+            onChange={(event) => setDraft({ ...draft, summary: event.target.value })}
+          />
+          <label className="field-label" htmlFor="card-content">完整内容</label>
+          <textarea
+            id="card-content"
+            className="compact-textarea tall"
+            value={draft.content}
+            onChange={(event) => setDraft({ ...draft, content: event.target.value })}
+          />
+          <div className="inline-fields">
+            <div>
+              <label className="field-label" htmlFor="card-type">类型</label>
+              <input
+                id="card-type"
+                className="text-input"
+                value={draft.type}
+                onChange={(event) => setDraft({ ...draft, type: event.target.value })}
+              />
+            </div>
+            <div>
+              <label className="field-label" htmlFor="card-mastery">掌握状态</label>
+              <select
+                id="card-mastery"
+                value={draft.mastery_status}
+                onChange={(event) =>
+                  setDraft({ ...draft, mastery_status: event.target.value as KnowledgeCard["mastery_status"] })
+                }
+              >
+                {Object.entries(masteryLabels).map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <label className="field-label" htmlFor="card-tags">标签</label>
+          <input
+            id="card-tags"
+            className="text-input"
+            value={formatTags(draft.tags)}
+            onChange={(event) => setDraft({ ...draft, tags: parseTags(event.target.value) })}
+            placeholder="标签，用逗号分隔"
+          />
+          <div className="detail-actions">
+            <button className="primary-action" type="button" disabled={isBusy} onClick={saveDraft}>
+              <Save aria-hidden="true" />
+              保存
+            </button>
+            <button className="secondary-action" type="button" disabled={isBusy} onClick={() => setIsEditing(false)}>
+              取消
+            </button>
+          </div>
+        </div>
+      ) : (
+        <>
+          <span className="card-type">{visibleCard.type}</span>
+          <h2>{visibleCard.title}</h2>
+          <div className="detail-actions">
+            <button className="secondary-action" type="button" onClick={() => setIsEditing(true)}>
+              编辑
+            </button>
+            {onExport && (
+              <button className="secondary-action" type="button" onClick={() => onExport(card)}>
+                <Download aria-hidden="true" />
+                预览
+              </button>
+            )}
+            {onExportFile && (
+              <button className="primary-action" type="button" onClick={() => onExportFile(card)}>
+                <Save aria-hidden="true" />
+                导出文件
+              </button>
+            )}
+            {onDelete && (
+              <button className="danger-action" type="button" disabled={isBusy} onClick={deleteCurrentCard}>
+                <Trash2 aria-hidden="true" />
+                删除
+              </button>
+            )}
+          </div>
+          <p className="summary">{visibleCard.summary}</p>
+          <p>{visibleCard.content}</p>
+          <div className="tag-row">
+            {visibleCard.tags.map((tag) => (
+              <span key={tag}>{tag}</span>
+            ))}
+          </div>
+          <dl>
+            <div>
+              <dt>掌握状态</dt>
+              <dd>{masteryLabels[visibleCard.mastery_status]}</dd>
+            </div>
+            <div>
+              <dt>来源对话</dt>
+              <dd>{visibleCard.source_conversation_id}</dd>
+            </div>
+          </dl>
+        </>
       )}
-      <p className="summary">{card.summary}</p>
-      <p>{card.content}</p>
-      <div className="tag-row">
-        {card.tags.map((tag) => (
-          <span key={tag}>{tag}</span>
-        ))}
-      </div>
-      <dl>
-        <div>
-          <dt>掌握状态</dt>
-          <dd>{masteryLabels[card.mastery_status]}</dd>
-        </div>
-        <div>
-          <dt>来源对话</dt>
-          <dd>{card.source_conversation_id}</dd>
-        </div>
-      </dl>
       <div className="related-section">
         <h3>相关关系</h3>
         {relatedRelations.length === 0 ? (

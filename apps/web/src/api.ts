@@ -8,7 +8,8 @@ import type {
   KnowledgeCard,
   KnowledgeGraph,
   OpenAiStatus,
-  SearchCardsResult
+  SearchCardsResult,
+  UpdateCardInput
 } from "./types";
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? "";
@@ -119,6 +120,20 @@ export const api = {
 
     return request<KnowledgeCard>(`/api/cards/${id}`);
   },
+  updateCard(input: UpdateCardInput) {
+    if (isTauriRuntime()) {
+      return invoke<KnowledgeCard>("update_card", { input });
+    }
+
+    return Promise.reject(new Error("卡片编辑只能在桌面版中使用。"));
+  },
+  deleteCard(id: string) {
+    if (isTauriRuntime()) {
+      return invoke<void>("delete_card", { id });
+    }
+
+    return Promise.reject(new Error("卡片删除只能在桌面版中使用。"));
+  },
   searchCards(input: { query: string; tag?: string }) {
     if (isTauriRuntime()) {
       return invoke<SearchCardsResult>("search_cards", { input });
@@ -212,5 +227,19 @@ export const api = {
     }
 
     return Promise.resolve("");
+  },
+  exportCardMarkdownFile(id: string) {
+    if (isTauriRuntime()) {
+      return invoke<string>("export_card_markdown_file", { id });
+    }
+
+    return Promise.reject(new Error("文件导出只能在桌面版中使用。"));
+  },
+  exportAllCardsMarkdownFile() {
+    if (isTauriRuntime()) {
+      return invoke<string>("export_all_cards_markdown_file");
+    }
+
+    return Promise.reject(new Error("文件导出只能在桌面版中使用。"));
   }
 };
