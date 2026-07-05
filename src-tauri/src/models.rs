@@ -42,6 +42,23 @@ pub struct CardRelation {
     pub created_at: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct CreateRelationInput {
+    pub source_card_id: String,
+    pub target_card_id: String,
+    pub relation_type: String,
+    pub reason: String,
+    pub confidence: f64,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct UpdateRelationInput {
+    pub id: String,
+    pub relation_type: String,
+    pub reason: String,
+    pub confidence: f64,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExtractedCardDraft {
     pub title: String,
@@ -108,6 +125,8 @@ pub struct SetOpenAiModelInput {
 pub struct SearchCardsInput {
     pub query: String,
     pub tag: Option<String>,
+    pub card_type: Option<String>,
+    pub mastery_status: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -121,10 +140,23 @@ pub struct UpdateCardInput {
     pub mastery_status: String,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct MergeCardsInput {
+    pub source_card_id: String,
+    pub target_card_id: String,
+}
+
 #[derive(Debug, Serialize)]
 pub struct SearchCardsResult {
     pub cards: Vec<KnowledgeCard>,
     pub engine: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct BackupInfo {
+    pub path: String,
+    pub filename: String,
+    pub created_at: String,
 }
 
 #[derive(Debug, Serialize)]

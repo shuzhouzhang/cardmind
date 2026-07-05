@@ -30,6 +30,21 @@ export interface CardRelation {
   created_at: string;
 }
 
+export interface CreateRelationInput {
+  source_card_id: string;
+  target_card_id: string;
+  relation_type: RelationType;
+  reason: string;
+  confidence: number;
+}
+
+export interface UpdateRelationInput {
+  id: string;
+  relation_type: RelationType;
+  reason: string;
+  confidence: number;
+}
+
 export type RelationType =
   | "prerequisite"
   | "contains"
@@ -73,6 +88,12 @@ export interface SearchCardsResult {
   engine: "fts5" | "like" | string;
 }
 
+export interface BackupInfo {
+  path: string;
+  filename: string;
+  created_at: string;
+}
+
 export interface UpdateCardInput {
   id: string;
   title: string;
@@ -81,6 +102,11 @@ export interface UpdateCardInput {
   type: string;
   tags: string[];
   mastery_status: KnowledgeCard["mastery_status"];
+}
+
+export interface MergeCardsInput {
+  source_card_id: string;
+  target_card_id: string;
 }
 
 export interface KnowledgeGraph {

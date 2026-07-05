@@ -7,11 +7,14 @@ import {
   KeyRound,
   Network,
   Download,
+  Plus,
+  RotateCcw,
   Save,
   Search,
   Settings2,
   Sparkles,
-  Trash2
+  Trash2,
+  Upload
 } from "lucide-react";
 import type React from "react";
 import { useEffect, useMemo, useState } from "react";
@@ -20,12 +23,15 @@ import { GraphView } from "./GraphView";
 import type {
   CardRelation,
   Conversation,
+  CreateRelationInput,
   ExtractedCardDraft,
   ExtractedRelationDraft,
   ExtractionPreview,
   KnowledgeCard,
+  MergeCardsInput,
   OpenAiStatus,
-  RelationType
+  RelationType,
+  UpdateRelationInput
 } from "./types";
 
 type View = "home" | "import" | "cards" | "graph";
@@ -51,6 +57,55 @@ function parseTags(value: string) {
 
 function formatTags(tags: string[]) {
   return tags.join(", ");
+}
+
+function normalizeImportedJson(value: unknown): string {
+  const lines: string[] = [];
+  const pushMessage = (item: unknown) => {
+    if (!item || typeof item !== "object") {
+      return;
+    }
+
+    const record = item as Record<string, unknown>;
+    const message = (record.message && typeof record.message === "object"
+      ? record.message
+      : record) as Record<string, unknown>;
+    const author = message.author && typeof message.author === "object"
+      ? (message.author as Record<string, unknown>)
+      : {};
+    const role = String(message.role ?? author.role ?? record.role ?? "message");
+    const content = message.content && typeof message.content === "object"
+      ? (message.content as Record<string, unknown>)
+      : {};
+    const parts = Array.isArray(content.parts)
+      ? content.parts
+      : Array.isArray(record.parts)
+        ? record.parts
+        : typeof message.content === "string"
+          ? [message.content]
+          : typeof record.content === "string"
+            ? [record.content]
+            : [];
+    const text = parts.filter((part) => typeof part === "string").join("\n").trim();
+    if (text) {
+      lines.push(`${role}:\n${text}`);
+    }
+  };
+
+  if (Array.isArray(value)) {
+    value.forEach(pushMessage);
+  } else if (value && typeof value === "object") {
+    const record = value as Record<string, unknown>;
+    if (Array.isArray(record.messages)) {
+      record.messages.forEach(pushMessage);
+    } else if (record.mapping && typeof record.mapping === "object") {
+      Object.values(record.mapping as Record<string, unknown>).forEach(pushMessage);
+    } else {
+      pushMessage(record);
+    }
+  }
+
+  return lines.join("\n\n") || JSON.stringify(value, null, 2);
 }
 
 const navItems: Array<{ id: View; label: string; icon: typeof Home }> = [
@@ -156,6 +211,12 @@ export function App() {
           onStatusChange={(nextStatus, message) => {
             setOpenAiStatus(nextStatus);
             setStatus(message);
+          }}
+        />
+        <DataTools
+          onStatusChange={async (message) => {
+            setStatus(message);
+            await refreshData();
           }}
         />
         <div className="status">{status}</div>
@@ -301,6 +362,29 @@ function ImportView({ onDone }: { onDone: (message: string) => Promise<void> }) 
   const [preview, setPreview] = useState<ExtractionPreview | null>(null);
   const [isBusy, setIsBusy] = useState(false);
 
+  async function importFile(file: File) {
+    const content = await file.text();
+    const lowerName = file.name.toLowerCase();
+    let nextContent = content;
+
+    if (lowerName.endsWith(".json")) {
+      try {
+        const parsed = JSON.parse(content);
+        nextContent = normalizeImportedJson(parsed);
+      } catch {
+        nextContent = content;
+      }
+    } else if (lowerName.endsWith(".html") || lowerName.endsWith(".htm")) {
+      nextContent = content.replace(/<script[\s\S]*?<\/script>/gi, "").replace(/<[^>]+>/g, "\n");
+    }
+
+    setTitle((current) => current || file.name.replace(/\.[^.]+$/, ""));
+    setRawContent(nextContent.trim());
+    setConversation(null);
+    setPreview(null);
+    await onDone(`已从文件导入内容：${file.name}`);
+  }
+
   async function saveConversation() {
     setIsBusy(true);
     try {
@@ -386,10 +470,27 @@ function ImportView({ onDone }: { onDone: (message: string) => Promise<void> }) 
           <p className="eyebrow">导入</p>
           <h2>粘贴一段 AI 对话</h2>
         </div>
-        <button className="primary-action" type="button" disabled={isBusy || rawContent.trim().length === 0} onClick={saveConversation}>
-          <FilePlus2 aria-hidden="true" />
-          保存对话
-        </button>
+        <div className="toolbar-actions">
+          <label className="secondary-action file-action">
+            <Upload aria-hidden="true" />
+            导入文件
+            <input
+              type="file"
+              accept=".txt,.md,.markdown,.json,.html,.htm,text/plain,text/markdown,application/json,text/html"
+              onChange={(event) => {
+                const file = event.target.files?.[0];
+                if (file) {
+                  importFile(file).catch((error) => onDone(formatErrorMessage(error, "导入文件失败")));
+                }
+                event.target.value = "";
+              }}
+            />
+          </label>
+          <button className="primary-action" type="button" disabled={isBusy || rawContent.trim().length === 0} onClick={saveConversation}>
+            <FilePlus2 aria-hidden="true" />
+            保存对话
+          </button>
+        </div>
       </div>
 
       <div className="import-layout">
@@ -595,19 +696,35 @@ function CardsView({
 }) {
   const [query, setQuery] = useState("");
   const [tagFilter, setTagFilter] = useState("");
+  const [typeFilter, setTypeFilter] = useState("");
+  const [masteryFilter, setMasteryFilter] = useState("");
   const [visibleCards, setVisibleCards] = useState<KnowledgeCard[]>(cards);
   const [searchEngine, setSearchEngine] = useState<string>("本地列表");
   const [exportMarkdown, setExportMarkdown] = useState("");
   const [isSearching, setIsSearching] = useState(false);
+  const cardTypes = useMemo(
+    () => Array.from(new Set(cards.map((card) => card.type))).sort((left, right) => left.localeCompare(right)),
+    [cards]
+  );
 
   useEffect(() => {
     setVisibleCards(cards);
   }, [cards]);
 
-  async function runSearch(nextQuery = query, nextTag = tagFilter) {
+  async function runSearch(
+    nextQuery = query,
+    nextTag = tagFilter,
+    nextType = typeFilter,
+    nextMastery = masteryFilter
+  ) {
     setIsSearching(true);
     try {
-      const result = await api.searchCards({ query: nextQuery, tag: nextTag || undefined });
+      const result = await api.searchCards({
+        query: nextQuery,
+        tag: nextTag || undefined,
+        card_type: nextType || undefined,
+        mastery_status: nextMastery || undefined
+      });
       setVisibleCards(result.cards);
       setSearchEngine(result.engine === "fts5" ? "SQLite FTS5" : "LIKE");
     } finally {
@@ -652,6 +769,26 @@ function CardsView({
     await api.deleteCard(card.id);
     const nextCard = cards.find((item) => item.id !== card.id);
     await onChanged(`已删除卡片：${card.title}`, nextCard?.id ?? null);
+  }
+
+  async function mergeCards(input: MergeCardsInput) {
+    const merged = await api.mergeCards(input);
+    await onChanged(`已合并到卡片：${merged.title}`, merged.id);
+  }
+
+  async function createRelation(input: CreateRelationInput) {
+    const relation = await api.createRelation(input);
+    await onChanged(`已新增关系：${relationLabels[relation.relation_type]}`, selectedCard?.id);
+  }
+
+  async function updateRelation(input: UpdateRelationInput) {
+    const relation = await api.updateRelation(input);
+    await onChanged(`已更新关系：${relationLabels[relation.relation_type]}`, selectedCard?.id);
+  }
+
+  async function deleteRelation(relation: CardRelation) {
+    await api.deleteRelation(relation.id);
+    await onChanged("已删除关系", selectedCard?.id);
   }
 
   if (cards.length === 0) {
@@ -708,6 +845,22 @@ function CardsView({
               onChange={(event) => setTagFilter(event.target.value)}
               placeholder="标签过滤"
             />
+            <select value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)}>
+              <option value="">全部类型</option>
+              {cardTypes.map((type) => (
+                <option key={type} value={type}>
+                  {type}
+                </option>
+              ))}
+            </select>
+            <select value={masteryFilter} onChange={(event) => setMasteryFilter(event.target.value)}>
+              <option value="">全部状态</option>
+              {Object.entries(masteryLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
             <button className="primary-action" type="button" disabled={isSearching} onClick={() => runSearch()}>
               搜索
             </button>
@@ -751,6 +904,10 @@ function CardsView({
         onExportFile={exportOneToFile}
         onSave={saveCard}
         onDelete={deleteCard}
+        onCreateRelation={createRelation}
+        onUpdateRelation={updateRelation}
+        onDeleteRelation={deleteRelation}
+        onMerge={mergeCards}
       />
     </section>
   );
@@ -764,7 +921,11 @@ export function CardDetail({
   onExport,
   onExportFile,
   onSave,
-  onDelete
+  onDelete,
+  onCreateRelation,
+  onUpdateRelation,
+  onDeleteRelation,
+  onMerge
 }: {
   card?: KnowledgeCard;
   cards?: KnowledgeCard[];
@@ -773,13 +934,25 @@ export function CardDetail({
   onExportFile?: (card: KnowledgeCard) => void;
   onSave?: (card: KnowledgeCard) => Promise<void>;
   onDelete?: (card: KnowledgeCard) => Promise<void>;
+  onCreateRelation?: (input: CreateRelationInput) => Promise<void>;
+  onUpdateRelation?: (input: UpdateRelationInput) => Promise<void>;
+  onDeleteRelation?: (relation: CardRelation) => Promise<void>;
+  onMerge?: (input: MergeCardsInput) => Promise<void>;
 }) {
   const [isEditing, setIsEditing] = useState(false);
   const [draft, setDraft] = useState<KnowledgeCard | null>(card ?? null);
+  const [newRelationTarget, setNewRelationTarget] = useState("");
+  const [newRelationType, setNewRelationType] = useState<RelationType>("related");
+  const [newRelationReason, setNewRelationReason] = useState("");
+  const [mergeTarget, setMergeTarget] = useState("");
   const [isBusy, setIsBusy] = useState(false);
 
   useEffect(() => {
     setDraft(card ?? null);
+    setNewRelationTarget("");
+    setNewRelationType("related");
+    setNewRelationReason("");
+    setMergeTarget("");
     setIsEditing(false);
   }, [card?.id]);
 
@@ -820,6 +993,51 @@ export function CardDetail({
     setIsBusy(true);
     try {
       await onDelete(currentCard);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function createCurrentRelation() {
+    if (!onCreateRelation || !newRelationTarget || !newRelationReason.trim()) {
+      return;
+    }
+
+    setIsBusy(true);
+    try {
+      await onCreateRelation({
+        source_card_id: currentCard.id,
+        target_card_id: newRelationTarget,
+        relation_type: newRelationType,
+        reason: newRelationReason,
+        confidence: 0.8
+      });
+      setNewRelationTarget("");
+      setNewRelationReason("");
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function mergeCurrentCard() {
+    if (!onMerge || !mergeTarget) {
+      return;
+    }
+
+    const target = cards.find((item) => item.id === mergeTarget);
+    const confirmed = window.confirm(
+      `确定把“${currentCard.title}”合并到“${target?.title ?? mergeTarget}”吗？当前卡片会被删除，内容和关系会迁移到目标卡片。`
+    );
+    if (!confirmed) {
+      return;
+    }
+
+    setIsBusy(true);
+    try {
+      await onMerge({
+        source_card_id: currentCard.id,
+        target_card_id: mergeTarget
+      });
     } finally {
       setIsBusy(false);
     }
@@ -943,6 +1161,65 @@ export function CardDetail({
       )}
       <div className="related-section">
         <h3>相关关系</h3>
+        {onMerge && cards.length > 1 && (
+          <div className="merge-box">
+            <strong>重复卡片处理</strong>
+            <select value={mergeTarget} onChange={(event) => setMergeTarget(event.target.value)}>
+              <option value="">选择要合并到的目标卡片</option>
+              {cards
+                .filter((item) => item.id !== currentCard.id)
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title}
+                  </option>
+                ))}
+            </select>
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={isBusy || !mergeTarget}
+              onClick={mergeCurrentCard}
+            >
+              合并当前卡片
+            </button>
+          </div>
+        )}
+        {onCreateRelation && (
+          <div className="relation-create">
+            <select value={newRelationTarget} onChange={(event) => setNewRelationTarget(event.target.value)}>
+              <option value="">选择目标卡片</option>
+              {cards
+                .filter((item) => item.id !== currentCard.id)
+                .map((item) => (
+                  <option key={item.id} value={item.id}>
+                    {item.title}
+                  </option>
+                ))}
+            </select>
+            <select value={newRelationType} onChange={(event) => setNewRelationType(event.target.value as RelationType)}>
+              {Object.entries(relationLabels).map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+            <input
+              className="text-input"
+              value={newRelationReason}
+              onChange={(event) => setNewRelationReason(event.target.value)}
+              placeholder="关系理由"
+            />
+            <button
+              className="secondary-action"
+              type="button"
+              disabled={isBusy || !newRelationTarget || !newRelationReason.trim()}
+              onClick={createCurrentRelation}
+            >
+              <Plus aria-hidden="true" />
+              新增关系
+            </button>
+          </div>
+        )}
         {relatedRelations.length === 0 ? (
           <p>暂无相关卡片。</p>
         ) : (
@@ -950,16 +1227,168 @@ export function CardDetail({
             const otherId = relation.source_card_id === card.id ? relation.target_card_id : relation.source_card_id;
             const otherCard = cards.find((item) => item.id === otherId);
             return (
-              <div className="relation-item" key={relation.id}>
-                <strong>{relationLabels[relation.relation_type]}</strong>
-                <span>{otherCard?.title ?? otherId}</span>
-                <small>{relation.reason}</small>
-              </div>
+              <SavedRelationEditor
+                key={relation.id}
+                relation={relation}
+                otherTitle={otherCard?.title ?? otherId}
+                onUpdate={onUpdateRelation}
+                onDelete={onDeleteRelation}
+              />
             );
           })
         )}
       </div>
     </aside>
+  );
+}
+
+function SavedRelationEditor({
+  relation,
+  otherTitle,
+  onUpdate,
+  onDelete
+}: {
+  relation: CardRelation;
+  otherTitle: string;
+  onUpdate?: (input: UpdateRelationInput) => Promise<void>;
+  onDelete?: (relation: CardRelation) => Promise<void>;
+}) {
+  const [relationType, setRelationType] = useState<RelationType>(relation.relation_type);
+  const [reason, setReason] = useState(relation.reason);
+  const [isBusy, setIsBusy] = useState(false);
+
+  useEffect(() => {
+    setRelationType(relation.relation_type);
+    setReason(relation.reason);
+  }, [relation.id, relation.relation_type, relation.reason]);
+
+  async function saveRelation() {
+    if (!onUpdate) {
+      return;
+    }
+
+    setIsBusy(true);
+    try {
+      await onUpdate({
+        id: relation.id,
+        relation_type: relationType,
+        reason,
+        confidence: relation.confidence
+      });
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function removeRelation() {
+    if (!onDelete || !window.confirm("确定删除这条关系吗？")) {
+      return;
+    }
+
+    setIsBusy(true);
+    try {
+      await onDelete(relation);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  return (
+    <div className="relation-item">
+      <span>{otherTitle}</span>
+      <div className="relation-edit-row">
+        <select value={relationType} onChange={(event) => setRelationType(event.target.value as RelationType)}>
+          {Object.entries(relationLabels).map(([value, label]) => (
+            <option key={value} value={value}>
+              {label}
+            </option>
+          ))}
+        </select>
+        <input className="text-input" value={reason} onChange={(event) => setReason(event.target.value)} />
+      </div>
+      <div className="detail-actions">
+        <button className="secondary-action" type="button" disabled={isBusy || !reason.trim()} onClick={saveRelation}>
+          保存关系
+        </button>
+        {onDelete && (
+          <button className="danger-action" type="button" disabled={isBusy} onClick={removeRelation}>
+            删除关系
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DataTools({ onStatusChange }: { onStatusChange: (message: string) => Promise<void> }) {
+  const [isBusy, setIsBusy] = useState(false);
+
+  async function createBackup() {
+    setIsBusy(true);
+    try {
+      const backup = await api.createDatabaseBackup();
+      await onStatusChange(`已创建备份：${backup.filename}`);
+    } catch (error) {
+      await onStatusChange(`创建备份失败：${formatErrorMessage(error, "未知错误")}`);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function restoreLatestBackup() {
+    setIsBusy(true);
+    try {
+      const backups = await api.listDatabaseBackups();
+      const latest = backups[0];
+      if (!latest) {
+        await onStatusChange("还没有可恢复的备份。");
+        return;
+      }
+
+      const confirmed = window.confirm(`确定恢复备份“${latest.filename}”吗？当前数据库会先自动备份。`);
+      if (!confirmed) {
+        return;
+      }
+
+      await api.restoreDatabaseBackup(latest.path);
+      await onStatusChange(`已恢复备份：${latest.filename}`);
+    } catch (error) {
+      await onStatusChange(`恢复备份失败：${formatErrorMessage(error, "未知错误")}`);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  async function showBackupCount() {
+    setIsBusy(true);
+    try {
+      const backups = await api.listDatabaseBackups();
+      await onStatusChange(`当前共有 ${backups.length} 个数据库备份。`);
+    } catch (error) {
+      await onStatusChange(`读取备份失败：${formatErrorMessage(error, "未知错误")}`);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
+  return (
+    <div className="data-box">
+      <div className="openai-title">
+        <Database aria-hidden="true" />
+        <strong>数据</strong>
+      </div>
+      <div className="sidebar-actions wrap">
+        <button type="button" disabled={isBusy} onClick={createBackup} title="备份 SQLite 数据库">
+          <Save aria-hidden="true" />
+        </button>
+        <button type="button" disabled={isBusy} onClick={showBackupCount}>
+          备份
+        </button>
+        <button type="button" disabled={isBusy} onClick={restoreLatestBackup}>
+          <RotateCcw aria-hidden="true" />
+        </button>
+      </div>
+    </div>
   );
 }
 
@@ -971,6 +1400,7 @@ function OpenAiSettings({
   onStatusChange: (status: OpenAiStatus, message: string) => void;
 }) {
   const [apiKey, setApiKey] = useState("");
+  const [customModel, setCustomModel] = useState("");
   const [isBusy, setIsBusy] = useState(false);
 
   async function saveKey() {
@@ -1027,6 +1457,17 @@ function OpenAiSettings({
     }
   }
 
+  async function saveCustomModel() {
+    const model = customModel.trim();
+    if (!model) {
+      onStatusChange(status ?? { has_api_key: false, model: "gpt-5.4-mini" }, "请先输入 OpenAI 模型名称。");
+      return;
+    }
+
+    await setModel(model);
+    setCustomModel("");
+  }
+
   return (
     <div className="openai-box">
       <div className="openai-title">
@@ -1042,8 +1483,20 @@ function OpenAiSettings({
         onChange={(event) => setModel(event.target.value)}
       >
         <option value="gpt-5.4-mini">gpt-5.4-mini</option>
+        <option value="gpt-5.4-nano">gpt-5.4-nano</option>
         <option value="gpt-5.5">gpt-5.5</option>
       </select>
+      <div className="sidebar-actions">
+        <input
+          className="sidebar-input"
+          value={customModel}
+          onChange={(event) => setCustomModel(event.target.value)}
+          placeholder="自定义模型"
+        />
+        <button type="button" disabled={isBusy || !customModel.trim()} onClick={saveCustomModel}>
+          应用
+        </button>
+      </div>
       <input
         className="sidebar-input"
         type="password"

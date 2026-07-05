@@ -179,4 +179,15 @@ mod tests {
         assert!(result.cards.iter().any(|card| card.title == "SQLite"));
         assert_eq!(result.relations.len(), result.cards.len() - 1);
     }
+
+    #[test]
+    fn fallback_creates_note_cards_for_unknown_content() {
+        let result = extract_knowledge_cards(
+            "排查播放接口时，先记录复现步骤和日志线索，再确认运行状态。性能测试需要固定输入规模和测量口径。",
+        );
+
+        assert!(!result.cards.is_empty());
+        assert!(result.cards.len() <= 3);
+        assert!(result.cards.iter().all(|card| card.r#type == "note"));
+    }
 }

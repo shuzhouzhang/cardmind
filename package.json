@@ -9,6 +9,7 @@
     "build": "pnpm --recursive build",
     "check": "pnpm --recursive check",
     "verify": "pnpm --recursive check && cargo check --manifest-path src-tauri/Cargo.toml && cargo test --manifest-path src-tauri/Cargo.toml",
+    "eval:extractor": "cargo test --manifest-path src-tauri/Cargo.toml extractor::tests -- --nocapture",
     "build:desktop": "pnpm tauri build",
     "api:dev": "pnpm --filter @cardmind/api dev",
     "web:dev": "pnpm --filter @cardmind/web dev",

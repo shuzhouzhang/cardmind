@@ -1,8 +1,9 @@
 use crate::extractor::extract_knowledge_cards;
 use crate::models::{
-    CardRelation, ConfirmExtractionInput, Conversation, CreateConversationInput, ExtractionPreview,
-    ExtractedCardDraft, ExtractedRelationDraft, GraphEdge, GraphNode, KnowledgeCard, KnowledgeGraph,
-    OpenAiStatus, PersistedExtraction, UpdateCardInput,
+    BackupInfo, CardRelation, ConfirmExtractionInput, Conversation, CreateConversationInput,
+    CreateRelationInput, ExtractionPreview, ExtractedCardDraft, ExtractedRelationDraft, GraphEdge,
+    GraphNode, KnowledgeCard, KnowledgeGraph, MergeCardsInput, OpenAiStatus, PersistedExtraction,
+    UpdateCardInput, UpdateRelationInput,
     SearchCardsInput, SearchCardsResult,
 };
 use crate::openai::extract_with_openai_or_mock;
@@ -83,6 +84,7 @@ const KEYRING_USER: &str = "openai_api_key";
 
 pub struct CardMindRepository {
     connection: Connection,
+    db_path: PathBuf,
 }
 
 impl CardMindRepository {
@@ -91,10 +93,10 @@ impl CardMindRepository {
             std::fs::create_dir_all(parent).map_err(|_| rusqlite::Error::InvalidPath(db_path.clone()))?;
         }
 
-        let connection = Connection::open(db_path)?;
+        let connection = Connection::open(&db_path)?;
         connection.pragma_update(None, "foreign_keys", "ON")?;
         connection.execute_batch(SCHEMA_SQL)?;
-        let repository = Self { connection };
+        let repository = Self { connection, db_path };
         repository.migrate_supports_relation_type()?;
         repository.initialize_search_index();
         Ok(repository)
@@ -405,9 +407,88 @@ impl CardMindRepository {
         Ok(())
     }
 
+    pub fn merge_cards(&self, input: MergeCardsInput) -> Result<KnowledgeCard, String> {
+        if input.source_card_id == input.target_card_id {
+            return Err("不能把卡片合并到它自己。".to_string());
+        }
+
+        let source = self
+            .get_card(&input.source_card_id)?
+            .ok_or_else(|| "Source knowledge card not found".to_string())?;
+        let target = self
+            .get_card(&input.target_card_id)?
+            .ok_or_else(|| "Target knowledge card not found".to_string())?;
+
+        let mut merged_tags = target.tags.clone();
+        for tag in source.tags {
+            if !merged_tags.iter().any(|item| item.eq_ignore_ascii_case(&tag)) {
+                merged_tags.push(tag);
+            }
+        }
+
+        let merged_content = format!(
+            "{}\n\n---\n\n合并来源：{}\n\n{}",
+            target.content.trim(),
+            source.title.trim(),
+            source.content.trim()
+        );
+
+        let updated = self.update_card(UpdateCardInput {
+            id: target.id.clone(),
+            title: target.title,
+            summary: target.summary,
+            content: merged_content,
+            r#type: target.r#type,
+            tags: merged_tags,
+            mastery_status: target.mastery_status,
+        })?;
+
+        self.connection
+            .execute(
+                "UPDATE card_relations SET source_card_id = ?1 WHERE source_card_id = ?2",
+                params![updated.id.as_str(), source.id.as_str()],
+            )
+            .map_err(|error| error.to_string())?;
+        self.connection
+            .execute(
+                "UPDATE card_relations SET target_card_id = ?1 WHERE target_card_id = ?2",
+                params![updated.id.as_str(), source.id.as_str()],
+            )
+            .map_err(|error| error.to_string())?;
+        self.connection
+            .execute(
+                "DELETE FROM card_relations WHERE source_card_id = target_card_id",
+                [],
+            )
+            .map_err(|error| error.to_string())?;
+        self.connection
+            .execute(
+                "DELETE FROM card_relations
+                 WHERE rowid NOT IN (
+                   SELECT MIN(rowid)
+                   FROM card_relations
+                   GROUP BY source_card_id, target_card_id, relation_type, reason
+                 )",
+                [],
+            )
+            .map_err(|error| error.to_string())?;
+
+        self.delete_card(&source.id)?;
+
+        self.get_card(&updated.id)?
+            .ok_or_else(|| "Target knowledge card not found".to_string())
+    }
+
     pub fn search_cards(&self, input: SearchCardsInput) -> Result<SearchCardsResult, String> {
         let query = input.query.trim().to_string();
-        if query.is_empty() && input.tag.as_deref().unwrap_or_default().trim().is_empty() {
+        let tag = input.tag.as_deref();
+        let card_type = input.card_type.as_deref();
+        let mastery_status = input.mastery_status.as_deref();
+        if query.is_empty()
+            && tag.unwrap_or_default().trim().is_empty()
+            && card_type.unwrap_or_default().trim().is_empty()
+            && mastery_status.unwrap_or_default().trim().is_empty()
+        {
             return Ok(SearchCardsResult {
                 cards: self.list_cards()?,
                 engine: self.search_engine_name(),
@@ -415,7 +496,7 @@ impl CardMindRepository {
         }
 
         if self.is_fts_available() {
-            match self.search_cards_fts(&query, input.tag.as_deref()) {
+            match self.search_cards_fts(&query, tag, card_type, mastery_status) {
                 Ok(cards) => {
                     return Ok(SearchCardsResult {
                         cards,
@@ -429,7 +510,7 @@ impl CardMindRepository {
         }
 
         Ok(SearchCardsResult {
-            cards: self.search_cards_like(&query, input.tag.as_deref())?,
+            cards: self.search_cards_like(&query, tag, card_type, mastery_status)?,
             engine: "like".to_string(),
         })
     }
@@ -449,6 +530,98 @@ impl CardMindRepository {
             .map_err(|error| error.to_string())?;
 
         collect_rows(rows)
+    }
+
+    pub fn create_relation(&self, input: CreateRelationInput) -> Result<CardRelation, String> {
+        if input.source_card_id == input.target_card_id {
+            return Err("关系的来源卡片和目标卡片不能相同。".to_string());
+        }
+        if self.get_card(&input.source_card_id)?.is_none() || self.get_card(&input.target_card_id)?.is_none() {
+            return Err("关系引用的卡片不存在。".to_string());
+        }
+
+        let relation_type = normalize_relation_type(&input.relation_type);
+        let reason = input.reason.trim();
+        if reason.is_empty() {
+            return Err("关系理由不能为空。".to_string());
+        }
+
+        let relation = CardRelation {
+            id: create_id("rel"),
+            source_card_id: input.source_card_id,
+            target_card_id: input.target_card_id,
+            relation_type: relation_type.to_string(),
+            reason: reason.to_string(),
+            confidence: input.confidence.clamp(0.0, 1.0),
+            created_at: now_iso(),
+        };
+
+        self.connection
+            .execute(
+                "INSERT INTO card_relations
+                 (id, source_card_id, target_card_id, relation_type, reason, confidence, created_at)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![
+                    relation.id,
+                    relation.source_card_id,
+                    relation.target_card_id,
+                    relation.relation_type,
+                    relation.reason,
+                    relation.confidence,
+                    relation.created_at
+                ],
+            )
+            .map_err(|error| error.to_string())?;
+
+        Ok(relation)
+    }
+
+    pub fn update_relation(&self, input: UpdateRelationInput) -> Result<CardRelation, String> {
+        let relation_type = normalize_relation_type(&input.relation_type);
+        let reason = input.reason.trim();
+        if reason.is_empty() {
+            return Err("关系理由不能为空。".to_string());
+        }
+
+        let changed = self
+            .connection
+            .execute(
+                "UPDATE card_relations
+                 SET relation_type = ?1, reason = ?2, confidence = ?3
+                 WHERE id = ?4",
+                params![relation_type, reason, input.confidence.clamp(0.0, 1.0), input.id],
+            )
+            .map_err(|error| error.to_string())?;
+        if changed == 0 {
+            return Err("Card relation not found".to_string());
+        }
+
+        self.get_relation(&input.id)?
+            .ok_or_else(|| "Card relation not found".to_string())
+    }
+
+    pub fn delete_relation(&self, id: &str) -> Result<(), String> {
+        let changed = self
+            .connection
+            .execute("DELETE FROM card_relations WHERE id = ?1", [id])
+            .map_err(|error| error.to_string())?;
+        if changed == 0 {
+            return Err("Card relation not found".to_string());
+        }
+        Ok(())
+    }
+
+    fn get_relation(&self, id: &str) -> Result<Option<CardRelation>, String> {
+        self.connection
+            .query_row(
+                "SELECT id, source_card_id, target_card_id, relation_type, reason, confidence, created_at
+                 FROM card_relations
+                 WHERE id = ?1",
+                [id],
+                map_relation,
+            )
+            .optional()
+            .map_err(|error| error.to_string())
     }
 
     pub fn get_graph(&self) -> Result<KnowledgeGraph, String> {
@@ -505,6 +678,50 @@ impl CardMindRepository {
     pub fn export_all_cards_markdown_file(&self, export_dir: PathBuf) -> Result<String, String> {
         let cards = self.list_cards()?;
         self.write_markdown_file(&cards, export_dir, "CardMind Export.md")
+    }
+
+    pub fn create_database_backup(&self, backup_dir: PathBuf) -> Result<BackupInfo, String> {
+        std::fs::create_dir_all(&backup_dir).map_err(|error| error.to_string())?;
+        let timestamp = Utc::now().format("%Y%m%d-%H%M%S").to_string();
+        let filename = format!("cardmind-backup-{timestamp}.sqlite");
+        let path = backup_dir.join(&filename);
+        std::fs::copy(&self.db_path, &path).map_err(|error| error.to_string())?;
+
+        Ok(BackupInfo {
+            path: path.to_string_lossy().to_string(),
+            filename,
+            created_at: now_iso(),
+        })
+    }
+
+    pub fn list_database_backups(&self, backup_dir: PathBuf) -> Result<Vec<BackupInfo>, String> {
+        if !backup_dir.exists() {
+            return Ok(Vec::new());
+        }
+
+        let mut backups = std::fs::read_dir(&backup_dir)
+            .map_err(|error| error.to_string())?
+            .filter_map(Result::ok)
+            .filter(|entry| {
+                entry
+                    .path()
+                    .extension()
+                    .and_then(|value| value.to_str())
+                    .is_some_and(|extension| extension.eq_ignore_ascii_case("sqlite"))
+            })
+            .filter_map(|entry| {
+                let metadata = entry.metadata().ok()?;
+                let modified = metadata.modified().ok()?;
+                let created_at = chrono::DateTime::<Utc>::from(modified).to_rfc3339();
+                Some(BackupInfo {
+                    path: entry.path().to_string_lossy().to_string(),
+                    filename: entry.file_name().to_string_lossy().to_string(),
+                    created_at,
+                })
+            })
+            .collect::<Vec<_>>();
+        backups.sort_by(|left, right| right.created_at.cmp(&left.created_at));
+        Ok(backups)
     }
 
     pub fn get_card_relations(&self, card_id: &str) -> Result<Vec<CardRelation>, String> {
@@ -641,10 +858,10 @@ impl CardMindRepository {
     }
 
     pub fn set_openai_model(&self, model: &str) -> Result<OpenAiStatus, String> {
-        let normalized = match model.trim() {
-            "gpt-5.5" => "gpt-5.5",
-            _ => DEFAULT_OPENAI_MODEL,
-        };
+        let normalized = model.trim();
+        if normalized.is_empty() {
+            return Err("OpenAI 模型不能为空。".to_string());
+        }
 
         self.connection
             .execute(
@@ -772,9 +989,17 @@ impl CardMindRepository {
         }
     }
 
-    fn search_cards_fts(&self, query: &str, tag: Option<&str>) -> Result<Vec<KnowledgeCard>, String> {
+    fn search_cards_fts(
+        &self,
+        query: &str,
+        tag: Option<&str>,
+        card_type: Option<&str>,
+        mastery_status: Option<&str>,
+    ) -> Result<Vec<KnowledgeCard>, String> {
         let fts_query = sanitize_fts_query(query);
         let tag_filter = tag.unwrap_or_default().trim().to_string();
+        let type_filter = card_type.unwrap_or_default().trim().to_string();
+        let mastery_filter = mastery_status.unwrap_or_default().trim().to_string();
         let mut statement = self
             .connection
             .prepare(
@@ -783,13 +1008,15 @@ impl CardMindRepository {
                  JOIN knowledge_cards_fts fts ON fts.card_id = kc.id
                  WHERE (?1 = '' OR knowledge_cards_fts MATCH ?1)
                    AND (?2 = '' OR kc.tags LIKE ?3)
+                   AND (?4 = '' OR kc.type = ?4)
+                   AND (?5 = '' OR kc.mastery_status = ?5)
                  ORDER BY kc.created_at DESC",
             )
             .map_err(|error| error.to_string())?;
 
         let rows = statement
             .query_map(
-                params![fts_query, tag_filter, format!("%{}%", tag_filter)],
+                params![fts_query, tag_filter, format!("%{}%", tag_filter), type_filter, mastery_filter],
                 map_card,
             )
             .map_err(|error| error.to_string())?;
@@ -797,11 +1024,19 @@ impl CardMindRepository {
         collect_rows(rows)
     }
 
-    fn search_cards_like(&self, query: &str, tag: Option<&str>) -> Result<Vec<KnowledgeCard>, String> {
+    fn search_cards_like(
+        &self,
+        query: &str,
+        tag: Option<&str>,
+        card_type: Option<&str>,
+        mastery_status: Option<&str>,
+    ) -> Result<Vec<KnowledgeCard>, String> {
         let query_filter = query.trim().to_string();
         let like_query = format!("%{}%", query_filter);
         let tag_filter = tag.unwrap_or_default().trim().to_string();
         let like_tag = format!("%{}%", tag_filter);
+        let type_filter = card_type.unwrap_or_default().trim().to_string();
+        let mastery_filter = mastery_status.unwrap_or_default().trim().to_string();
 
         let mut statement = self
             .connection
@@ -810,12 +1045,17 @@ impl CardMindRepository {
                  FROM knowledge_cards
                  WHERE (?1 = '' OR title LIKE ?2 OR summary LIKE ?2 OR content LIKE ?2)
                    AND (?3 = '' OR tags LIKE ?4)
+                   AND (?5 = '' OR type = ?5)
+                   AND (?6 = '' OR mastery_status = ?6)
                  ORDER BY created_at DESC",
             )
             .map_err(|error| error.to_string())?;
 
         let rows = statement
-            .query_map(params![query_filter, like_query, tag_filter, like_tag], map_card)
+            .query_map(
+                params![query_filter, like_query, tag_filter, like_tag, type_filter, mastery_filter],
+                map_card,
+            )
             .map_err(|error| error.to_string())?;
 
         collect_rows(rows)
@@ -971,6 +1211,18 @@ fn safe_filename(value: &str) -> String {
     }
 }
 
+fn normalize_relation_type(value: &str) -> &'static str {
+    match value.trim() {
+        "prerequisite" => "prerequisite",
+        "contains" => "contains",
+        "contrast" => "contrast",
+        "application" => "application",
+        "source" => "source",
+        "supports" => "supports",
+        _ => "related",
+    }
+}
+
 fn sanitize_fts_query(query: &str) -> String {
     query
         .split_whitespace()
@@ -992,7 +1244,10 @@ fn sanitize_fts_query(query: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::CardMindRepository;
-    use crate::models::{CreateConversationInput, SearchCardsInput, UpdateCardInput};
+    use crate::models::{
+        CreateConversationInput, CreateRelationInput, MergeCardsInput, SearchCardsInput,
+        UpdateCardInput, UpdateRelationInput,
+    };
     use tempfile::tempdir;
 
     #[test]
@@ -1080,6 +1335,8 @@ mod tests {
             .search_cards(SearchCardsInput {
                 query: "benchmark".to_string(),
                 tag: None,
+                card_type: None,
+                mastery_status: None,
             })
             .expect("search cards");
 
@@ -1142,6 +1399,8 @@ mod tests {
             .search_cards(SearchCardsInput {
                 query: "portfolio-proof".to_string(),
                 tag: Some("证据链".to_string()),
+                card_type: Some("principle".to_string()),
+                mastery_status: Some("learning".to_string()),
             })
             .expect("search updated card");
 
@@ -1178,5 +1437,107 @@ mod tests {
             .unwrap()
             .iter()
             .all(|relation| relation.source_card_id != card.id && relation.target_card_id != card.id));
+    }
+
+    #[test]
+    fn relation_crud_and_database_backup_work() {
+        let tempdir = tempdir().expect("create tempdir");
+        let mut repository =
+            CardMindRepository::open(tempdir.path().join("cardmind.sqlite")).expect("open db");
+
+        repository.seed_sample_data().expect("seed sample data");
+        let cards = repository.list_cards().expect("list cards");
+        let source = cards.first().expect("source card");
+        let target = cards.get(1).expect("target card");
+
+        let relation = repository
+            .create_relation(CreateRelationInput {
+                source_card_id: source.id.clone(),
+                target_card_id: target.id.clone(),
+                relation_type: "application".to_string(),
+                reason: "用于验证手动关系维护。".to_string(),
+                confidence: 0.77,
+            })
+            .expect("create relation");
+        let updated = repository
+            .update_relation(UpdateRelationInput {
+                id: relation.id.clone(),
+                relation_type: "contrast".to_string(),
+                reason: "更新后的关系说明。".to_string(),
+                confidence: 0.66,
+            })
+            .expect("update relation");
+
+        assert_eq!(updated.relation_type, "contrast");
+        assert!(repository
+            .get_card_relations(&source.id)
+            .unwrap()
+            .iter()
+            .any(|item| item.id == relation.id));
+
+        repository.delete_relation(&relation.id).expect("delete relation");
+        assert!(!repository
+            .list_relations()
+            .unwrap()
+            .iter()
+            .any(|item| item.id == relation.id));
+
+        let backup = repository
+            .create_database_backup(tempdir.path().join("backups"))
+            .expect("create backup");
+        assert!(std::path::Path::new(&backup.path).exists());
+        assert_eq!(
+            repository
+                .list_database_backups(tempdir.path().join("backups"))
+                .unwrap()
+                .len(),
+            1
+        );
+    }
+
+    #[test]
+    fn merge_cards_moves_content_and_relations_to_target() {
+        let tempdir = tempdir().expect("create tempdir");
+        let mut repository =
+            CardMindRepository::open(tempdir.path().join("cardmind.sqlite")).expect("open db");
+
+        repository.seed_sample_data().expect("seed sample data");
+        let cards = repository.list_cards().expect("list cards");
+        let source = cards
+            .iter()
+            .find(|card| card.title == "简历优化建议")
+            .expect("source card")
+            .clone();
+        let target = cards
+            .iter()
+            .find(|card| card.title == "微服务拆分边界")
+            .expect("target card")
+            .clone();
+
+        repository
+            .create_relation(CreateRelationInput {
+                source_card_id: source.id.clone(),
+                target_card_id: target.id.clone(),
+                relation_type: "related".to_string(),
+                reason: "合并前用于验证关系迁移。".to_string(),
+                confidence: 0.8,
+            })
+            .expect("create relation");
+
+        let merged = repository
+            .merge_cards(MergeCardsInput {
+                source_card_id: source.id.clone(),
+                target_card_id: target.id.clone(),
+            })
+            .expect("merge cards");
+
+        assert_eq!(merged.id, target.id);
+        assert!(merged.content.contains("合并来源：简历优化建议"));
+        assert!(repository.get_card(&source.id).unwrap().is_none());
+        assert!(repository
+            .list_relations()
+            .unwrap()
+            .iter()
+            .all(|relation| relation.source_card_id != source.id && relation.target_card_id != source.id));
     }
 }

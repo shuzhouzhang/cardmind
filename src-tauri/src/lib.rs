@@ -89,6 +89,14 @@ fn delete_card(state: State<'_, AppState>, id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn merge_cards(
+    state: State<'_, AppState>,
+    input: models::MergeCardsInput,
+) -> Result<models::KnowledgeCard, String> {
+    state.repository()?.merge_cards(input)
+}
+
+#[tauri::command]
 fn search_cards(
     state: State<'_, AppState>,
     input: models::SearchCardsInput,
@@ -99,6 +107,27 @@ fn search_cards(
 #[tauri::command]
 fn list_relations(state: State<'_, AppState>) -> Result<Vec<models::CardRelation>, String> {
     state.repository()?.list_relations()
+}
+
+#[tauri::command]
+fn create_relation(
+    state: State<'_, AppState>,
+    input: models::CreateRelationInput,
+) -> Result<models::CardRelation, String> {
+    state.repository()?.create_relation(input)
+}
+
+#[tauri::command]
+fn update_relation(
+    state: State<'_, AppState>,
+    input: models::UpdateRelationInput,
+) -> Result<models::CardRelation, String> {
+    state.repository()?.update_relation(input)
+}
+
+#[tauri::command]
+fn delete_relation(state: State<'_, AppState>, id: String) -> Result<(), String> {
+    state.repository()?.delete_relation(&id)
 }
 
 #[tauri::command]
@@ -135,6 +164,44 @@ fn export_all_cards_markdown_file(
     state
         .repository()?
         .export_all_cards_markdown_file(export_dir(&app)?)
+}
+
+#[tauri::command]
+fn create_database_backup(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<models::BackupInfo, String> {
+    state.repository()?.create_database_backup(backup_dir(&app)?)
+}
+
+#[tauri::command]
+fn list_database_backups(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> Result<Vec<models::BackupInfo>, String> {
+    state.repository()?.list_database_backups(backup_dir(&app)?)
+}
+
+#[tauri::command]
+fn restore_database_backup(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    path: String,
+) -> Result<(), String> {
+    let backup_path = PathBuf::from(path);
+    if !backup_path.exists() {
+        return Err("备份文件不存在。".to_string());
+    }
+
+    let safety_dir = backup_dir(&app)?;
+    std::fs::create_dir_all(&safety_dir).map_err(|error| error.to_string())?;
+    let safety_path = safety_dir.join(format!(
+        "cardmind-before-restore-{}.sqlite",
+        chrono::Utc::now().format("%Y%m%d-%H%M%S")
+    ));
+    std::fs::copy(&state.db_path, safety_path).map_err(|error| error.to_string())?;
+    std::fs::copy(backup_path, &state.db_path).map_err(|error| error.to_string())?;
+    Ok(())
 }
 
 #[tauri::command]
@@ -186,6 +253,15 @@ fn export_dir(app: &AppHandle) -> Result<PathBuf, String> {
         .join("exports"))
 }
 
+fn backup_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    Ok(app
+        .path()
+        .document_dir()
+        .map_err(|error| format!("无法定位 Documents 目录：{error}"))?
+        .join("CardMind")
+        .join("backups"))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -221,13 +297,20 @@ pub fn run() {
             get_card,
             update_card,
             delete_card,
+            merge_cards,
             search_cards,
             list_relations,
+            create_relation,
+            update_relation,
+            delete_relation,
             get_graph,
             export_card_markdown,
             export_all_cards_markdown,
             export_card_markdown_file,
             export_all_cards_markdown_file,
+            create_database_backup,
+            list_database_backups,
+            restore_database_backup,
             get_card_relations,
             seed_sample_data,
             get_openai_status,

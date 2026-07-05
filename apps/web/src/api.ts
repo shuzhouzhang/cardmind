@@ -1,14 +1,18 @@
 import { invoke } from "@tauri-apps/api/core";
 import type {
   CardRelation,
+  BackupInfo,
   Conversation,
+  CreateRelationInput,
   ExtractedCardDraft,
   ExtractedRelationDraft,
   ExtractionPreview,
   KnowledgeCard,
   KnowledgeGraph,
+  MergeCardsInput,
   OpenAiStatus,
   SearchCardsResult,
+  UpdateRelationInput,
   UpdateCardInput
 } from "./types";
 
@@ -134,7 +138,14 @@ export const api = {
 
     return Promise.reject(new Error("卡片删除只能在桌面版中使用。"));
   },
-  searchCards(input: { query: string; tag?: string }) {
+  mergeCards(input: MergeCardsInput) {
+    if (isTauriRuntime()) {
+      return invoke<KnowledgeCard>("merge_cards", { input });
+    }
+
+    return Promise.reject(new Error("卡片合并只能在桌面版中使用。"));
+  },
+  searchCards(input: { query: string; tag?: string; card_type?: string; mastery_status?: string }) {
     if (isTauriRuntime()) {
       return invoke<SearchCardsResult>("search_cards", { input });
     }
@@ -142,6 +153,8 @@ export const api = {
     return this.listCards().then((cards) => {
       const query = input.query.trim().toLowerCase();
       const tag = input.tag?.trim().toLowerCase() ?? "";
+      const cardType = input.card_type?.trim().toLowerCase() ?? "";
+      const masteryStatus = input.mastery_status?.trim().toLowerCase() ?? "";
       return {
         cards: cards.filter((card) => {
           const matchesQuery =
@@ -150,7 +163,9 @@ export const api = {
             card.summary.toLowerCase().includes(query) ||
             card.content.toLowerCase().includes(query);
           const matchesTag = tag.length === 0 || card.tags.some((item) => item.toLowerCase().includes(tag));
-          return matchesQuery && matchesTag;
+          const matchesType = cardType.length === 0 || card.type.toLowerCase() === cardType;
+          const matchesMastery = masteryStatus.length === 0 || card.mastery_status === masteryStatus;
+          return matchesQuery && matchesTag && matchesType && matchesMastery;
         }),
         engine: "like"
       };
@@ -169,6 +184,27 @@ export const api = {
     }
 
     return request<CardRelation[]>("/api/relations");
+  },
+  createRelation(input: CreateRelationInput) {
+    if (isTauriRuntime()) {
+      return invoke<CardRelation>("create_relation", { input });
+    }
+
+    return Promise.reject(new Error("关系编辑只能在桌面版中使用。"));
+  },
+  updateRelation(input: UpdateRelationInput) {
+    if (isTauriRuntime()) {
+      return invoke<CardRelation>("update_relation", { input });
+    }
+
+    return Promise.reject(new Error("关系编辑只能在桌面版中使用。"));
+  },
+  deleteRelation(id: string) {
+    if (isTauriRuntime()) {
+      return invoke<void>("delete_relation", { id });
+    }
+
+    return Promise.reject(new Error("关系删除只能在桌面版中使用。"));
   },
   getCardRelations(cardId: string) {
     if (isTauriRuntime()) {
@@ -241,5 +277,26 @@ export const api = {
     }
 
     return Promise.reject(new Error("文件导出只能在桌面版中使用。"));
+  },
+  createDatabaseBackup() {
+    if (isTauriRuntime()) {
+      return invoke<BackupInfo>("create_database_backup");
+    }
+
+    return Promise.reject(new Error("数据库备份只能在桌面版中使用。"));
+  },
+  listDatabaseBackups() {
+    if (isTauriRuntime()) {
+      return invoke<BackupInfo[]>("list_database_backups");
+    }
+
+    return Promise.resolve([]);
+  },
+  restoreDatabaseBackup(path: string) {
+    if (isTauriRuntime()) {
+      return invoke<void>("restore_database_backup", { path });
+    }
+
+    return Promise.reject(new Error("数据库恢复只能在桌面版中使用。"));
   }
 };
