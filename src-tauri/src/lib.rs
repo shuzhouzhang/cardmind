@@ -252,6 +252,11 @@ fn set_openai_model(
 }
 
 fn export_dir(app: &AppHandle) -> Result<PathBuf, String> {
+    let e_drive_exports = PathBuf::from(r"E:\CardMind\exports");
+    if PathBuf::from(r"E:\").exists() {
+        return Ok(e_drive_exports);
+    }
+
     Ok(app
         .path()
         .document_dir()

@@ -99,11 +99,13 @@ CardMind prefers SQLite FTS5 search when available and falls back to LIKE search
 In `卡片`:
 
 - click `预览全部` to preview all-card Markdown
-- click `导出文件` to write all-card Markdown to `Documents/CardMind/exports`
+- click `导出文件` to write all-card Markdown to `E:\CardMind\exports` on this Windows machine
 - select a card and click `预览` to preview one-card Markdown
 - select a card and click `导出文件` to write a single-card Markdown file
 
 SQLite remains the source of truth; Markdown is only an export format.
+
+If `E:\` is unavailable on another machine, CardMind falls back to `Documents/CardMind/exports`.
 
 ## 7. Backup and Restore
 

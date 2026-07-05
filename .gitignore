@@ -10,6 +10,7 @@ build/
 *.sqlite
 *.sqlite3
 data/
+exports/
 coverage/
 .DS_Store
 Thumbs.db
