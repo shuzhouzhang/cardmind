@@ -1,6 +1,18 @@
 :root {
-  color: #1f2933;
-  background: #eef3f4;
+  --ink: #172126;
+  --muted: #52646b;
+  --panel: #f8fbfb;
+  --surface: #ffffff;
+  --rail: #0d2528;
+  --rail-panel: #143237;
+  --accent: #0f766e;
+  --accent-soft: #e4f5f2;
+  --line: #d8e4e6;
+  --warning: #8a4b00;
+  --danger: #9f1d1d;
+  --success: #0b7a4b;
+  color: var(--ink);
+  background: var(--panel);
   font-family:
     Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   font-synthesis: none;
@@ -22,6 +34,7 @@ body,
 body {
   margin: 0;
   min-width: 320px;
+  background: var(--panel);
 }
 
 button,
@@ -35,9 +48,31 @@ button {
   cursor: pointer;
 }
 
+button,
+a,
+input,
+select,
+textarea {
+  transition:
+    border-color 0.16s ease,
+    background-color 0.16s ease,
+    color 0.16s ease,
+    box-shadow 0.16s ease,
+    transform 0.16s ease;
+}
+
+button:focus-visible,
+a:focus-visible,
+input:focus-visible,
+select:focus-visible,
+textarea:focus-visible {
+  outline: 3px solid rgba(15, 118, 110, 0.22);
+  outline-offset: 2px;
+}
+
 .shell {
   display: grid;
-  grid-template-columns: 232px minmax(0, 1fr);
+  grid-template-columns: 240px minmax(0, 1fr);
   width: 100%;
   height: 100%;
   overflow: hidden;
@@ -48,9 +83,12 @@ button {
   flex-direction: column;
   gap: 18px;
   min-height: 0;
+  overflow: auto;
   padding: 22px 14px;
   color: #f7fbfc;
-  background: #102427;
+  background:
+    linear-gradient(180deg, rgba(16, 59, 62, 0.45), transparent 280px),
+    var(--rail);
 }
 
 .brand {
@@ -104,8 +142,8 @@ button {
 .nav-button.active,
 .nav-button:hover {
   color: #ffffff;
-  background: #1b393d;
-  border-color: #2c565c;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: #2e5d63;
 }
 
 .openai-box,
@@ -113,7 +151,7 @@ button {
 .status {
   padding: 12px;
   color: #cfe1e3;
-  background: #183237;
+  background: var(--rail-panel);
   border: 1px solid #25474d;
   border-radius: 8px;
   font-size: 0.82rem;
@@ -123,7 +161,7 @@ button {
 .openai-box,
 .data-box {
   display: grid;
-  gap: 9px;
+  gap: 10px;
 }
 
 .openai-title,
@@ -146,6 +184,29 @@ button {
 
 .key-status.connected {
   color: #8ee6d9;
+}
+
+.connection-status {
+  display: block;
+  padding: 7px 9px;
+  color: #aac0c4;
+  background: rgba(13, 37, 40, 0.78);
+  border: 1px solid #2a5056;
+  border-radius: 7px;
+}
+
+.connection-status.ok {
+  color: #9cf2cf;
+  border-color: rgba(47, 174, 118, 0.6);
+}
+
+.connection-status.error {
+  color: #ffd2b7;
+  border-color: rgba(245, 158, 11, 0.6);
+}
+
+.connection-status.testing {
+  color: #dff7f4;
 }
 
 .openai-box a {
@@ -206,7 +267,7 @@ button {
   min-width: 0;
   height: 100%;
   overflow: auto;
-  padding: 22px;
+  padding: 18px 20px;
 }
 
 .view {
@@ -215,20 +276,20 @@ button {
 
 .dashboard-view {
   display: grid;
-  gap: 18px;
+  gap: 14px;
   align-content: start;
 }
 
 .hero-panel {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
-  gap: 18px;
+  gap: 16px;
   align-items: end;
-  padding: 22px;
-  background: #ffffff;
-  border: 1px solid #dde6e8;
+  padding: 18px;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 10px 24px rgba(21, 39, 45, 0.05);
+  box-shadow: 0 1px 0 rgba(21, 39, 45, 0.04);
 }
 
 .hero-actions,
@@ -244,7 +305,7 @@ button {
 
 .eyebrow {
   margin: 0 0 7px;
-  color: #0f766e;
+  color: var(--accent);
   font-size: 0.78rem;
   font-weight: 800;
   letter-spacing: 0;
@@ -255,14 +316,14 @@ h2,
 h3,
 h4 {
   margin: 0;
-  color: #172126;
+  color: var(--ink);
   letter-spacing: 0;
 }
 
 h1 {
   max-width: 760px;
-  font-size: clamp(2.1rem, 4vw, 3.4rem);
-  line-height: 1.05;
+  font-size: clamp(1.75rem, 3vw, 2.45rem);
+  line-height: 1.08;
 }
 
 h2 {
@@ -276,8 +337,8 @@ h3 {
 .lede {
   max-width: 760px;
   margin: 10px 0 0;
-  color: #52646b;
-  font-size: 1rem;
+  color: var(--muted);
+  font-size: 0.96rem;
   line-height: 1.6;
 }
 
@@ -292,17 +353,17 @@ h3 {
 .empty-state,
 .recent-panel,
 .preview-panel {
-  padding: 18px;
-  background: #ffffff;
-  border: 1px solid #dde6e8;
+  padding: 16px;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 8px;
-  box-shadow: 0 10px 24px rgba(21, 39, 45, 0.05);
+  box-shadow: 0 1px 0 rgba(21, 39, 45, 0.04);
 }
 
 .metric-card span {
   display: block;
-  color: #0f766e;
-  font-size: 2.1rem;
+  color: var(--accent);
+  font-size: 1.75rem;
   font-weight: 850;
 }
 
@@ -329,7 +390,7 @@ h3 {
   display: grid;
   gap: 4px;
   padding: 12px;
-  background: #f7fafb;
+  background: var(--panel);
   border: 1px solid #e2ebed;
   border-radius: 8px;
 }
@@ -362,13 +423,24 @@ h3 {
 
 .primary-action {
   color: #ffffff;
-  background: #0f766e;
+  background: var(--accent);
+}
+
+.primary-action:hover:not(:disabled) {
+  background: #0c625c;
+  box-shadow: 0 7px 16px rgba(15, 118, 110, 0.16);
+  transform: translateY(-1px);
 }
 
 .secondary-action {
   color: #12383b;
-  background: #ffffff;
+  background: var(--surface);
   border-color: #c7d5d8;
+}
+
+.secondary-action:hover:not(:disabled) {
+  border-color: var(--accent);
+  box-shadow: 0 6px 14px rgba(21, 39, 45, 0.07);
 }
 
 .danger-action {
@@ -413,8 +485,8 @@ h3 {
 .cards-layout,
 .graph-layout {
   display: grid;
-  grid-template-columns: minmax(360px, 1fr) minmax(320px, 420px);
-  gap: 16px;
+  grid-template-columns: minmax(360px, 1fr) minmax(330px, 420px);
+  gap: 14px;
   align-items: start;
 }
 
@@ -440,8 +512,8 @@ h3 {
 .relation-edit-row select,
 .edit-form select {
   width: 100%;
-  color: #1f2933;
-  background: #ffffff;
+  color: var(--ink);
+  background: var(--surface);
   border: 1px solid #cbd8dc;
   border-radius: 8px;
 }
@@ -478,7 +550,7 @@ h3 {
 }
 
 .conversation-input {
-  min-height: 360px;
+  min-height: 330px;
   padding: 16px;
   resize: vertical;
   line-height: 1.6;
@@ -509,7 +581,7 @@ h3 {
   top: 0;
   display: grid;
   gap: 12px;
-  max-height: calc(100vh - 44px);
+  max-height: calc(100vh - 36px);
   overflow: auto;
 }
 
@@ -525,8 +597,8 @@ h3 {
   display: grid;
   gap: 6px;
   padding: 12px;
-  background: #ffffff;
-  border: 1px solid #dde6e8;
+  background: var(--surface);
+  border: 1px solid var(--line);
   border-radius: 8px;
 }
 
@@ -547,7 +619,7 @@ h3 {
   display: grid;
   gap: 10px;
   padding: 14px;
-  background: #ffffff;
+  background: var(--surface);
   border: 1px solid #d9e3e5;
   border-radius: 8px;
 }
@@ -570,14 +642,14 @@ h3 {
   gap: 8px;
   width: 100%;
   padding: 14px;
-  background: #ffffff;
+  background: var(--surface);
   border: 1px solid #d9e3e5;
   border-radius: 8px;
   text-align: left;
 }
 
 .preview-card {
-  background: #f7fafb;
+  background: var(--panel);
 }
 
 .inline-fields {
@@ -587,7 +659,7 @@ h3 {
 }
 
 .knowledge-card:hover {
-  border-color: #0f766e;
+  border-color: var(--accent);
   box-shadow: 0 10px 20px rgba(15, 118, 110, 0.09);
 }
 
@@ -624,7 +696,7 @@ h3 {
   width: fit-content;
   padding: 4px 8px;
   color: #0f766e;
-  background: #e4f5f2;
+  background: var(--accent-soft);
   border-radius: 999px;
   font-size: 0.73rem;
   font-weight: 850;
@@ -678,7 +750,7 @@ h3 {
 
 .merge-box {
   padding: 10px;
-  background: #f7fafb;
+  background: var(--panel);
   border: 1px solid #d9e3e5;
   border-radius: 8px;
 }
@@ -698,9 +770,17 @@ h3 {
 
 .warning-text {
   padding: 10px;
-  color: #7c3f00;
+  color: var(--warning);
   background: #fff4df;
   border: 1px solid #ffd89b;
+  border-radius: 8px;
+}
+
+.success-text {
+  padding: 10px;
+  color: var(--success);
+  background: #eaf8f0;
+  border: 1px solid #b8e5c9;
   border-radius: 8px;
 }
 
@@ -708,7 +788,7 @@ h3 {
   position: sticky;
   top: 0;
   align-self: start;
-  max-height: calc(100vh - 44px);
+  max-height: calc(100vh - 36px);
   overflow: auto;
 }
 
@@ -738,7 +818,7 @@ dd {
   display: grid;
   gap: 4px;
   padding: 10px;
-  background: #f7fafb;
+  background: var(--panel);
   border: 1px solid #e2ebed;
   border-radius: 8px;
 }
@@ -750,11 +830,18 @@ dd {
 }
 
 .graph-workspace {
-  min-height: calc(100vh - 44px);
+  min-height: calc(100vh - 36px);
   overflow: hidden;
   background:
-    radial-gradient(circle at center, rgba(114, 214, 201, 0.14), transparent 36%),
-    #f7fafb;
+    radial-gradient(circle at center, rgba(15, 118, 110, 0.12), transparent 34%),
+    linear-gradient(90deg, rgba(216, 228, 230, 0.35) 1px, transparent 1px),
+    linear-gradient(0deg, rgba(216, 228, 230, 0.35) 1px, transparent 1px),
+    var(--panel);
+  background-size:
+    auto,
+    28px 28px,
+    28px 28px,
+    auto;
   border: 1px solid #d9e3e5;
   border-radius: 8px;
 }
@@ -771,13 +858,13 @@ dd {
 }
 
 .graph-workspace .react-flow {
-  height: calc(100vh - 118px);
+  height: calc(100vh - 110px);
   min-height: 480px;
 }
 
 .graph-node {
   color: #f8fcfd;
-  background: #143034;
+  background: #123034;
   border: 1px solid #4aa89e;
   border-radius: 999px;
   box-shadow: 0 12px 28px rgba(12, 35, 39, 0.2);
@@ -794,6 +881,7 @@ dd {
 .react-flow__edge-path {
   stroke: #52777c;
   stroke-width: 1.8;
+  stroke-dasharray: 5 7;
 }
 
 .react-flow__edge.animated .react-flow__edge-path {

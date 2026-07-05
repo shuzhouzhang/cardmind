@@ -26,7 +26,7 @@ The shell used the Codex bundled Node/pnpm runtime because the default shell PAT
 | --- | --- |
 | `pnpm --recursive check` | Passed: `apps/api`, `apps/web`, `packages/shared` TypeScript checks |
 | `cargo check --manifest-path src-tauri/Cargo.toml` | Passed |
-| `cargo test --manifest-path src-tauri/Cargo.toml` | Passed: 11 tests |
+| `cargo test --manifest-path src-tauri/Cargo.toml` | Passed: 12 tests |
 | `pnpm eval:extractor` | Passed: 2 extractor tests |
 | `pnpm verify` | Passed |
 | `pnpm build:desktop` | First run failed because a running `cardmind.exe` locked `src-tauri\target\release\cardmind.exe`; after stopping the process, rerun passed |
@@ -50,5 +50,6 @@ This is acceptable for the current Windows-only MVP but should be renamed before
 Screenshots were generated from the release build and reviewed:
 
 - `docs/screenshots/home.png`
+- `docs/screenshots/import.png`
 - `docs/screenshots/cards.png`
 - `docs/screenshots/graph.png`

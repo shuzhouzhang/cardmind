@@ -67,6 +67,7 @@ Search / Export        Graph View
 截图文件位于 `docs/screenshots/`。如果本地数据库不同，数字和卡片内容会略有差异。
 
 ![CardMind 首页](docs/screenshots/home.png)
+![CardMind 导入](docs/screenshots/import.png)
 ![CardMind 卡片与维护](docs/screenshots/cards.png)
 ![CardMind 图谱](docs/screenshots/graph.png)
 
