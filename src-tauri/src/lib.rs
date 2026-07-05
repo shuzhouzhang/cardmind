@@ -224,6 +224,13 @@ fn get_openai_status(state: State<'_, AppState>) -> Result<models::OpenAiStatus,
 }
 
 #[tauri::command]
+fn test_openai_connection(
+    state: State<'_, AppState>,
+) -> Result<models::OpenAiConnectionTest, String> {
+    state.repository()?.test_openai_connection()
+}
+
+#[tauri::command]
 fn save_openai_api_key(
     state: State<'_, AppState>,
     input: models::SaveOpenAiApiKeyInput,
@@ -314,6 +321,7 @@ pub fn run() {
             get_card_relations,
             seed_sample_data,
             get_openai_status,
+            test_openai_connection,
             save_openai_api_key,
             clear_openai_api_key,
             set_openai_model

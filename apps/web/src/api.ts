@@ -10,6 +10,7 @@ import type {
   KnowledgeCard,
   KnowledgeGraph,
   MergeCardsInput,
+  OpenAiConnectionTest,
   OpenAiStatus,
   SearchCardsResult,
   UpdateRelationInput,
@@ -228,6 +229,13 @@ export const api = {
     }
 
     return Promise.resolve({ has_api_key: false, model: "gpt-5.4-mini" });
+  },
+  testOpenAiConnection() {
+    if (isTauriRuntime()) {
+      return invoke<OpenAiConnectionTest>("test_openai_connection");
+    }
+
+    return Promise.reject(new Error("OpenAI 连接测试只能在桌面版中使用。"));
   },
   saveOpenAiApiKey(apiKey: string) {
     if (isTauriRuntime()) {

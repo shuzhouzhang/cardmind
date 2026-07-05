@@ -111,6 +111,14 @@ pub struct OpenAiStatus {
     pub model: String,
 }
 
+#[derive(Debug, Serialize)]
+pub struct OpenAiConnectionTest {
+    pub ok: bool,
+    pub provider: String,
+    pub model: String,
+    pub message: String,
+}
+
 #[derive(Debug, Deserialize)]
 pub struct SaveOpenAiApiKeyInput {
     pub api_key: String,

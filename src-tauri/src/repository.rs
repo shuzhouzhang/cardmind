@@ -2,11 +2,10 @@ use crate::extractor::extract_knowledge_cards;
 use crate::models::{
     BackupInfo, CardRelation, ConfirmExtractionInput, Conversation, CreateConversationInput,
     CreateRelationInput, ExtractionPreview, ExtractedCardDraft, ExtractedRelationDraft, GraphEdge,
-    GraphNode, KnowledgeCard, KnowledgeGraph, MergeCardsInput, OpenAiStatus, PersistedExtraction,
-    UpdateCardInput, UpdateRelationInput,
-    SearchCardsInput, SearchCardsResult,
+    GraphNode, KnowledgeCard, KnowledgeGraph, MergeCardsInput, OpenAiConnectionTest, OpenAiStatus,
+    PersistedExtraction, SearchCardsInput, SearchCardsResult, UpdateCardInput, UpdateRelationInput,
 };
-use crate::openai::extract_with_openai_or_mock;
+use crate::openai::{extract_with_openai_or_mock, test_openai_connection};
 use chrono::Utc;
 use keyring::Entry;
 use rusqlite::{params, Connection, OptionalExtension};
@@ -833,6 +832,17 @@ impl CardMindRepository {
             has_api_key,
             key_source,
             model: self.openai_model()?,
+        })
+    }
+
+    pub fn test_openai_connection(&self) -> Result<OpenAiConnectionTest, String> {
+        let model = self.openai_model()?;
+        test_openai_connection(self.openai_api_key(), &model)?;
+        Ok(OpenAiConnectionTest {
+            ok: true,
+            provider: "openai".to_string(),
+            model,
+            message: "OpenAI 连接测试成功。".to_string(),
         })
     }
 

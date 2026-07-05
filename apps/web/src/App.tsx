@@ -238,6 +238,12 @@ export function App() {
               setStatus(message);
               await refreshData();
             }}
+            onConfirmed={async (message, firstCardId) => {
+              setStatus(message);
+              await refreshData();
+              setSelectedCardId(firstCardId ?? null);
+              setActiveView("cards");
+            }}
           />
         )}
         {activeView === "cards" && (
@@ -355,7 +361,13 @@ function MetricCard({ label, value }: { label: string; value: number }) {
   );
 }
 
-function ImportView({ onDone }: { onDone: (message: string) => Promise<void> }) {
+function ImportView({
+  onDone,
+  onConfirmed
+}: {
+  onDone: (message: string) => Promise<void>;
+  onConfirmed: (message: string, firstCardId?: string) => Promise<void>;
+}) {
   const [title, setTitle] = useState("");
   const [rawContent, setRawContent] = useState("");
   const [conversation, setConversation] = useState<Conversation | null>(null);
@@ -431,7 +443,10 @@ function ImportView({ onDone }: { onDone: (message: string) => Promise<void> }) 
         cards: preview.cards,
         relations: preview.relations
       });
-      await onDone(`已保存 ${result.cards.length} 张知识卡片和 ${result.relations.length} 条关系`);
+      await onConfirmed(
+        `已保存 ${result.cards.length} 张知识卡片和 ${result.relations.length} 条关系`,
+        result.cards[0]?.id
+      );
       setPreview(null);
       setConversation(null);
     } finally {
@@ -515,7 +530,7 @@ function ImportView({ onDone }: { onDone: (message: string) => Promise<void> }) 
             <span>{conversation ? `已保存来源：${conversation.id}` : "保存后可以开始抽取知识卡片"}</span>
             <button className="secondary-action" type="button" disabled={isBusy || !conversation} onClick={previewCards}>
               <Sparkles aria-hidden="true" />
-              开始抽取知识卡片
+              {isBusy && conversation ? "正在抽取..." : "开始抽取知识卡片"}
             </button>
           </div>
         </div>
@@ -548,8 +563,12 @@ function PreviewPanel({
   if (!preview) {
     return (
       <aside className="preview-panel empty-state">
-        <h3>等待抽取</h3>
-        <p>保存对话后点击“开始抽取知识卡片”，这里会展示 AI 生成的卡片预览。</p>
+        <h3>{isBusy ? "正在抽取知识卡片" : "等待抽取"}</h3>
+        <p>
+          {isBusy
+            ? "CardMind 正在调用 OpenAI；如果连接失败，会自动回退到本地 mock 并显示原因。"
+            : "保存对话后点击“开始抽取知识卡片”，这里会展示 AI 生成的卡片预览。"}
+        </p>
       </aside>
     );
   }
@@ -562,7 +581,11 @@ function PreviewPanel({
           <h3>{preview.cards.length} 张卡片预览</h3>
         </div>
       </div>
-      {preview.warning && <p className="warning-text">{preview.warning}</p>}
+      {preview.warning ? (
+        <p className="warning-text">{preview.warning}</p>
+      ) : (
+        <p className="success-text">已使用 OpenAI 生成预览，确认后才会写入 SQLite。</p>
+      )}
       <div className="preview-list">
         {preview.cards.map((card, index) => (
           <PreviewCard
@@ -585,7 +608,7 @@ function PreviewPanel({
         </div>
       )}
       <button className="primary-action full-width" type="button" disabled={isBusy} onClick={onConfirm}>
-        确认保存这些卡片
+        {isBusy ? "正在保存..." : "确认保存这些卡片"}
       </button>
     </aside>
   );
@@ -1401,6 +1424,8 @@ function OpenAiSettings({
 }) {
   const [apiKey, setApiKey] = useState("");
   const [customModel, setCustomModel] = useState("");
+  const [connectionMessage, setConnectionMessage] = useState("未测试连接");
+  const [connectionState, setConnectionState] = useState<"idle" | "testing" | "ok" | "error">("idle");
   const [isBusy, setIsBusy] = useState(false);
 
   async function saveKey() {
@@ -1413,6 +1438,8 @@ function OpenAiSettings({
     try {
       const nextStatus = await api.saveOpenAiApiKey(apiKey);
       setApiKey("");
+      setConnectionState("idle");
+      setConnectionMessage("Key 已保存，建议测试连接。");
       onStatusChange(nextStatus, "OpenAI API Key 已保存到系统凭据。");
     } catch (error) {
       onStatusChange(
@@ -1431,6 +1458,8 @@ function OpenAiSettings({
     setIsBusy(true);
     try {
       const nextStatus = await api.clearOpenAiApiKey();
+      setConnectionState("idle");
+      setConnectionMessage("未测试连接");
       onStatusChange(nextStatus, "OpenAI API Key 已清除。");
     } catch (error) {
       onStatusChange(
@@ -1446,6 +1475,8 @@ function OpenAiSettings({
     setIsBusy(true);
     try {
       const nextStatus = await api.setOpenAiModel(model);
+      setConnectionState("idle");
+      setConnectionMessage("模型已切换，建议重新测试连接。");
       onStatusChange(nextStatus, `OpenAI 模型已切换为 ${nextStatus.model}`);
     } catch (error) {
       onStatusChange(
@@ -1468,6 +1499,32 @@ function OpenAiSettings({
     setCustomModel("");
   }
 
+  async function testConnection() {
+    if (!status?.has_api_key) {
+      setConnectionState("error");
+      setConnectionMessage("未配置 API Key。");
+      onStatusChange(status ?? { has_api_key: false, model: "gpt-5.4-mini" }, "请先配置 OpenAI API Key。");
+      return;
+    }
+
+    setIsBusy(true);
+    setConnectionState("testing");
+    setConnectionMessage("正在测试 OpenAI 连接...");
+    try {
+      const result = await api.testOpenAiConnection();
+      setConnectionState("ok");
+      setConnectionMessage(`${result.message} 模型：${result.model}`);
+      onStatusChange(status, "OpenAI 连接测试成功。");
+    } catch (error) {
+      const message = formatErrorMessage(error, "OpenAI 连接测试失败。");
+      setConnectionState("error");
+      setConnectionMessage(message);
+      onStatusChange(status, `OpenAI 连接测试失败：${message}`);
+    } finally {
+      setIsBusy(false);
+    }
+  }
+
   return (
     <div className="openai-box">
       <div className="openai-title">
@@ -1477,6 +1534,7 @@ function OpenAiSettings({
       <span className={status?.has_api_key ? "key-status connected" : "key-status"}>
         {status?.has_api_key ? `已连接 · ${status.key_source}` : "未配置 API Key"}
       </span>
+      <span className={`connection-status ${connectionState}`}>{connectionMessage}</span>
       <select
         value={status?.model ?? "gpt-5.4-mini"}
         disabled={isBusy}
@@ -1507,6 +1565,9 @@ function OpenAiSettings({
       <div className="sidebar-actions">
         <button type="button" disabled={isBusy || apiKey.trim().length === 0} onClick={saveKey} title="保存 API Key">
           <KeyRound aria-hidden="true" />
+        </button>
+        <button type="button" disabled={isBusy || !status?.has_api_key} onClick={testConnection}>
+          {connectionState === "testing" ? "测试中" : "测试"}
         </button>
         <button type="button" disabled={isBusy || !status?.has_api_key} onClick={clearKey}>
           清除

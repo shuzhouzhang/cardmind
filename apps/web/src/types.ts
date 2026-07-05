@@ -83,6 +83,13 @@ export interface OpenAiStatus {
   model: string;
 }
 
+export interface OpenAiConnectionTest {
+  ok: boolean;
+  provider: "openai" | string;
+  model: string;
+  message: string;
+}
+
 export interface SearchCardsResult {
   cards: KnowledgeCard[];
   engine: "fts5" | "like" | string;

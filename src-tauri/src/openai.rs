@@ -1,6 +1,7 @@
 use crate::extractor::extract_knowledge_cards;
 use crate::models::{ExtractionPreview, ExtractionResult};
 use reqwest::blocking::Client;
+use reqwest::StatusCode;
 use serde_json::{json, Value};
 
 const OPENAI_RESPONSES_URL: &str = "https://api.openai.com/v1/responses";
@@ -39,6 +40,29 @@ pub fn extract_with_openai_or_mock(
     }
 }
 
+pub fn test_openai_connection(api_key: Option<String>, model: &str) -> Result<(), String> {
+    let api_key = api_key
+        .filter(|key| !key.trim().is_empty())
+        .ok_or_else(|| "未配置 OpenAI API Key。请先粘贴 Key，或设置环境变量 OPENAI_API_KEY。".to_string())?;
+
+    let client = Client::new();
+    let response = client
+        .post(OPENAI_RESPONSES_URL)
+        .bearer_auth(api_key)
+        .json(&json!({
+            "model": model,
+            "input": "请只回复 OK，用于验证 CardMind 的 OpenAI 连接。"
+        }))
+        .send()
+        .map_err(|error| format!("无法连接 OpenAI：{error}"))?;
+
+    if response.status().is_success() {
+        return Ok(());
+    }
+
+    Err(format_openai_error(response.status(), response.text().unwrap_or_default()))
+}
+
 fn call_openai(
     conversation_text: &str,
     api_key: &str,
@@ -75,7 +99,7 @@ fn call_openai(
     if !response.status().is_success() {
         let status = response.status();
         let body = response.text().unwrap_or_default();
-        return Err(format!("OpenAI HTTP {status}: {body}"));
+        return Err(format_openai_error(status, body));
     }
 
     let value = response.json::<Value>().map_err(|error| error.to_string())?;
@@ -83,6 +107,21 @@ fn call_openai(
     let extraction = serde_json::from_str::<ExtractionResult>(&text).map_err(|error| error.to_string())?;
     validate_extraction(&extraction)?;
     Ok(extraction)
+}
+
+fn format_openai_error(status: StatusCode, body: String) -> String {
+    let lower_body = body.to_lowercase();
+    let hint = match status.as_u16() {
+        401 => "API Key 无效或已过期。",
+        403 => "当前账号没有权限访问该模型或接口。",
+        404 => "模型不存在，或当前账号不可用这个模型。",
+        429 => "请求过于频繁或额度不足。",
+        500..=599 => "OpenAI 服务暂时不可用。",
+        _ if lower_body.contains("model") => "请检查模型名称和账号权限。",
+        _ => "请检查网络、API Key 和模型设置。",
+    };
+    let compact_body = body.chars().take(500).collect::<String>();
+    format!("OpenAI HTTP {status}：{hint} 原始错误：{compact_body}")
 }
 
 fn extraction_schema() -> Value {
@@ -175,4 +214,15 @@ fn validate_extraction(extraction: &ExtractionResult) -> Result<(), String> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::test_openai_connection;
+
+    #[test]
+    fn connection_test_requires_api_key() {
+        let error = test_openai_connection(None, "gpt-5.4-mini").expect_err("missing key should fail");
+        assert!(error.contains("未配置 OpenAI API Key"));
+    }
 }
