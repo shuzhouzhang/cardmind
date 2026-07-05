@@ -93,6 +93,27 @@ Conversation -> Extraction Preview -> Confirm -> SQLite
 
 The preview step matters because AI-generated cards should not silently become durable data. Users can inspect the result before saving it.
 
+## Maintenance Flow
+
+The MVP includes small maintenance actions because generated cards are rarely perfect:
+
+- edit card title, summary, content, type, tags, and mastery status
+- delete a bad card
+- merge a duplicate card into a better target card
+- create, edit, and delete relations
+
+Merge is deliberately conservative. It does not claim semantic deduplication; it appends the source content into the target card, moves relations away from the source card, removes self-relations, and deletes the source card.
+
+## Search and Export
+
+Search is local keyword search over card title, summary, content, tags, type, and mastery status filters. The repository tries SQLite FTS5 first and falls back to LIKE search when FTS5 is unavailable or the query cannot be parsed.
+
+Markdown export is one-way output from SQLite. Exported files are useful for sharing or archiving, but importing Markdown back as the primary source of truth is not part of the current design.
+
+## Backup
+
+CardMind can write local SQLite backup files under the user's documents folder. Restore is an explicit user action and creates a safety backup before replacing the active database file.
+
 ## Local-First and OpenAI Boundary
 
 By default, imported conversations are stored locally. If the user configures an OpenAI API Key and triggers extraction, the conversation text is sent to OpenAI for card extraction. If OpenAI is not configured or fails, CardMind falls back to a local mock extractor.

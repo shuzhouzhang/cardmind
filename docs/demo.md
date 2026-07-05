@@ -41,11 +41,25 @@ Demo topics:
 
 No API Key or private data is included in the demo.
 
-## 3. Inspect Cards
+## 3. Import Your Own Conversation
+
+Open `导入`.
+
+You can:
+
+- paste AI conversation text into the textarea
+- enter a title
+- import a lightweight local file (`.txt`, `.md`, `.json`, `.html`)
+
+Save the conversation, then click `开始抽取知识卡片`. CardMind will use OpenAI when configured, or local mock extraction when OpenAI is unavailable.
+
+Before saving, edit the preview card titles, summaries, contents, tags, and relation reasons. Click `确认保存这些卡片` only after the preview looks useful.
+
+## 4. Inspect and Maintain Cards
 
 Open `卡片`.
 
-Check that each card shows:
+Each card shows:
 
 - title
 - summary
@@ -56,7 +70,16 @@ Check that each card shows:
 
 Click a card to inspect full content and related relations.
 
-## 4. Search
+In the detail panel you can:
+
+- edit card fields
+- delete a card
+- merge the current card into another card
+- create, edit, or delete relations
+
+The merge flow is intentionally simple: it keeps the target card, appends current-card content as merged source material, moves relations to the target, and deletes the current card.
+
+## 5. Search
 
 In `卡片`, search for terms such as:
 
@@ -67,18 +90,37 @@ Reactor
 微服务
 ```
 
+You can also filter by tag, card type, and mastery status.
+
 CardMind prefers SQLite FTS5 search when available and falls back to LIKE search if FTS5 is unavailable or the query cannot be parsed.
 
-## 5. Export Markdown
+## 6. Export Markdown
 
 In `卡片`:
 
-- click `导出全部` to export all cards
-- select a card and click `导出 Markdown` to export one card
+- click `预览全部` to preview all-card Markdown
+- click `导出文件` to write all-card Markdown to `Documents/CardMind/exports`
+- select a card and click `预览` to preview one-card Markdown
+- select a card and click `导出文件` to write a single-card Markdown file
 
-The export appears as Markdown text in the app. SQLite remains the source of truth; Markdown is only an export format.
+SQLite remains the source of truth; Markdown is only an export format.
 
-## 6. Graph View
+## 7. Backup and Restore
+
+Use the `数据` panel in the sidebar:
+
+- click `备份` to create a local SQLite backup
+- click the restore icon to restore the latest backup
+
+Backups are stored under the user documents folder:
+
+```text
+Documents\CardMind\backups
+```
+
+Before restore, CardMind creates a safety backup of the current database.
+
+## 8. Graph View
 
 Open `图谱`.
 
